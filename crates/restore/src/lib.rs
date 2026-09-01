@@ -98,11 +98,16 @@ pub fn plan(detail: &SessionDetail) -> Plan {
     // seen. Without an extension this loses pinning and tab groups — the tab
     // set and its order are what survive.
     let mut urls_by_app: BTreeMap<String, Vec<&SessionArtifact>> = BTreeMap::new();
+    let mut dirs_by_terminal: BTreeMap<String, Vec<&SessionArtifact>> = BTreeMap::new();
 
     for a in &detail.artifacts {
         match a.kind {
             ArtifactKind::Url => {
                 urls_by_app.entry(a.app_id.clone()).or_default().push(a);
+                continue;
+            }
+            ArtifactKind::Terminal if TABBED_TERMINALS.contains(&a.app_id.as_str()) => {
+                dirs_by_terminal.entry(a.app_id.clone()).or_default().push(a);
                 continue;
             }
             ArtifactKind::App => continue, // handled after, only if nothing better
@@ -113,6 +118,15 @@ pub fn plan(detail: &SessionDetail) -> Plan {
 
     for (app_id, tabs) in urls_by_app {
         items.push(browser_item(&app_id, &tabs));
+    }
+
+    // Four directories were four tabs of one window, not four windows. A
+    // terminal that can be told to open tabs is told to.
+    for (app_id, dirs) in dirs_by_terminal {
+        match dirs.len() {
+            1 => items.push(item_for(dirs[0])),
+            _ => items.push(terminal_item(&app_id, &dirs)),
+        }
     }
 
     // A bare app is worth restoring only when nothing more specific covers it.
@@ -224,6 +238,79 @@ fn launch_recipe(app_id: &str, path: &std::path::Path, a: &SessionArtifact) -> (
     }
 }
 
+/// Terminals that take a tab list on the command line. Everything else gets one
+/// window per directory, because inventing a syntax for it would be guessing.
+const TABBED_TERMINALS: &[&str] = &["windowsterminal.exe", "wt.exe"];
+
+/// One terminal window with a tab per directory.
+///
+/// `wt -d A ; new-tab -d B` is Windows Terminal's own syntax for this, with the
+/// semicolons as separate arguments. Nothing that was typed at those prompts is
+/// replayed: Chronicle cannot tell a build from a deploy, and a session it
+/// half-remembers is not licence to run a command the user did not ask for.
+fn terminal_item(app_id: &str, dirs: &[&SessionArtifact]) -> PlanItem {
+    let first = dirs[0];
+    let exe = first.app_exe.as_ref().map(PathBuf::from).filter(|p| p.exists());
+    let paths: Vec<PathBuf> = dirs.iter().filter_map(|d| local_path(&d.uri)).collect();
+    let live: Vec<&PathBuf> = paths.iter().filter(|p| p.exists()).collect();
+
+    let (fidelity, action, note) = match (&exe, live.is_empty()) {
+        (Some(program), false) => {
+            let mut args: Vec<String> = Vec::new();
+            for (i, p) in live.iter().enumerate() {
+                if i > 0 {
+                    args.push(";".into());
+                    args.push("new-tab".into());
+                }
+                args.push("-d".into());
+                args.push(p.display().to_string());
+            }
+            let missing = paths.len() - live.len();
+            let note = (missing > 0).then(|| {
+                format!("{missing} of the directories no longer exist and are left out")
+            });
+            (
+                Fidelity::DeepLink,
+                Action::Launch {
+                    program: program.clone(),
+                    args,
+                },
+                note.or_else(|| Some("a tab per directory; nothing typed at the prompts is re-run".into())),
+            )
+        }
+        (None, _) => (
+            Fidelity::NeedsYou,
+            Action::Manual {
+                instruction: paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("
+"),
+            },
+            Some(format!("{} was not found on this machine", first.app_name)),
+        ),
+        (_, true) => (
+            Fidelity::Missing,
+            Action::Manual {
+                instruction: paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("
+"),
+            },
+            Some("none of these directories exist any more".into()),
+        ),
+    };
+
+    PlanItem {
+        key: format!("terminal:{app_id}"),
+        label: format!("{} — {} tab{}", first.app_name, dirs.len(), if dirs.len() == 1 { "" } else { "s" }),
+        detail: dirs.iter().take(4).map(|d| d.display_name.clone()).collect::<Vec<_>>().join("
+"),
+        app_name: first.app_name.clone(),
+        category: Category::Terminal,
+        selected: fidelity.actionable(),
+        fidelity,
+        action,
+        note,
+        artifact_ids: dirs.iter().map(|d| d.artifact_id).collect(),
+    }
+}
+
 fn browser_item(app_id: &str, tabs: &[&SessionArtifact]) -> PlanItem {
     let first = tabs[0];
     let exe = first.app_exe.as_ref().map(PathBuf::from).filter(|p| p.exists());
@@ -284,7 +371,13 @@ fn detail_line(a: &SessionArtifact) -> String {
 
 /// `file:///c:/work/proj` back to a real path.
 pub fn local_path(uri: &str) -> Option<PathBuf> {
-    let rest = uri.strip_prefix("file:///")?;
+    // `terminal://` is the same path under a different scheme: a directory a
+    // prompt was sitting in, kept separate so that a folder seen by both
+    // Explorer and a shell does not become one artifact that can only be
+    // restored one of the two ways.
+    let rest = uri
+        .strip_prefix("file:///")
+        .or_else(|| uri.strip_prefix("terminal://"))?;
     Some(PathBuf::from(rest.replace('/', "\\")))
 }
 
@@ -445,6 +538,69 @@ mod tests {
             last_seen: Utc::now(),
             state: Vec::new(),
         }
+    }
+
+    /// A directory that certainly exists on any machine running these tests.
+    fn a_real_dir() -> String {
+        std::env::temp_dir().to_string_lossy().replace('\\', "/")
+    }
+
+    #[test]
+    fn several_terminal_directories_become_one_window_of_tabs() {
+        let dir = a_real_dir();
+        let exe = std::env::current_exe().unwrap();
+        let d = detail(vec![
+            artifact(1, ArtifactKind::Terminal, &format!("terminal://{dir}"), "windowsterminal.exe",
+                     Category::Terminal, exe.to_str()),
+            artifact(2, ArtifactKind::Terminal, &format!("terminal://{dir}/."), "windowsterminal.exe",
+                     Category::Terminal, exe.to_str()),
+        ]);
+        let p = plan(&d);
+        let term: Vec<_> = p.items.iter().filter(|i| i.category == Category::Terminal).collect();
+        assert_eq!(term.len(), 1, "two directories must not become two windows");
+
+        let Action::Launch { args, .. } = &term[0].action else {
+            panic!("expected a launch, got {:?}", term[0].action);
+        };
+        // `wt -d A ; new-tab -d B`
+        assert_eq!(args.iter().filter(|a| *a == "-d").count(), 2);
+        assert!(args.contains(&";".to_string()));
+        assert!(args.contains(&"new-tab".to_string()));
+        assert_eq!(term[0].fidelity, Fidelity::DeepLink);
+    }
+
+    #[test]
+    fn a_single_terminal_directory_stays_a_plain_item() {
+        let dir = a_real_dir();
+        let exe = std::env::current_exe().unwrap();
+        let d = detail(vec![artifact(
+            1, ArtifactKind::Terminal, &format!("terminal://{dir}"), "windowsterminal.exe",
+            Category::Terminal, exe.to_str(),
+        )]);
+        let p = plan(&d);
+        let term: Vec<_> = p.items.iter().filter(|i| i.category == Category::Terminal).collect();
+        assert_eq!(term.len(), 1);
+        let Action::Launch { args, .. } = &term[0].action else {
+            panic!("expected a launch");
+        };
+        assert!(!args.contains(&"new-tab".to_string()), "one tab needs no tab syntax");
+    }
+
+    #[test]
+    fn a_terminal_directory_and_the_same_folder_in_explorer_stay_separate() {
+        // The two URIs differ by scheme precisely so that one folder can be
+        // both "a prompt was here" and "a window was showing this".
+        let dir = a_real_dir();
+        let exe = std::env::current_exe().unwrap();
+        let d = detail(vec![
+            artifact(1, ArtifactKind::Terminal, &format!("terminal://{dir}"), "windowsterminal.exe",
+                     Category::Terminal, exe.to_str()),
+            artifact(2, ArtifactKind::Directory, &format!("file:///{dir}"), "explorer.exe",
+                     Category::Folder, exe.to_str()),
+        ]);
+        let p = plan(&d);
+        assert_eq!(p.items.len(), 2);
+        assert_eq!(local_path(&format!("terminal://{dir}")), local_path(&format!("file:///{dir}")));
     }
 
     fn detail(artifacts: Vec<SessionArtifact>) -> SessionDetail {

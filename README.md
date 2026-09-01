@@ -138,13 +138,49 @@ Register a binary that lives outside the build directory. A path under
 `target\release` is held open by the running recorder, so the next
 `cargo build --release` fails, and `cargo clean` breaks the entry silently.
 
+## How a terminal's directory is found
+
+A terminal window's title is just "Windows PowerShell", and
+`windowsterminal.exe` is not itself in any directory — the shell is a separate
+process. So the directory is read from the shell's own memory: the PEB, via
+`NtQueryInformationProcess`, then `RTL_USER_PROCESS_PARAMETERS.CurrentDirectory`
+with `ReadProcessMemory`. It needs `PROCESS_VM_READ`, which a user has over
+their own processes without elevation. Nothing is written, nothing is injected,
+and the command line — which sits a few fields further along in the same
+structure — is deliberately not read.
+
+Finding the shell means walking the process tree, and the two terminal shapes
+run opposite ways round. Windows Terminal hosts each tab as a descendant, an
+`OpenConsole.exe` with the shell beneath it. A classic console window belongs to
+`conhost.exe`, which is a *child* of the shell. Both are checked.
+
+Only recognised shells count. A `cargo build` running under the prompt has a
+working directory too, and filing the session under whatever the compiler was
+doing would be worse than filing nothing.
+
+Directories are stored as `terminal://c:/work/proj`, not `file:///`. Artifact
+URIs are unique and the owning application is fixed the first time a URI is
+seen, so sharing the scheme with the Explorer enricher would mean whichever saw
+a folder first decided, for everyone afterwards, whether restoring it opens a
+file manager or a prompt.
+
+Restore uses Windows Terminal's own tab syntax, `wt -d A ; new-tab -d B`, so
+four directories come back as four tabs of one window rather than four windows.
+Nothing typed at those prompts is replayed: Chronicle cannot tell a build from a
+deploy.
+
 ## Known gaps
 
-- **Terminals record no working directory.** `windowsterminal.exe` is not itself
-  in any directory — the shell is a child process. Resolving it means walking
-  the process tree and reading the child's PEB via `NtQueryInformationProcess`.
-  Until then a terminal restores as "the app was open", not "in this folder",
-  and shows as **Needs you**.
+- **A terminal's tabs are not split by window.** Windows Terminal runs every
+  window in one process, so the process tree cannot say which window a given
+  shell belongs to — the same way Explorer needed a window handle to tell two
+  folder views apart, and unlike Explorer there is no `IShellWindows` to ask.
+  Two terminal windows of three tabs restore as one window of six. The
+  directories are right; the window split is not.
+- **A 32-bit shell reports no directory.** The offsets used to read
+  `RTL_USER_PROCESS_PARAMETERS` are the x64 ones, and a WOW64 process is
+  declined rather than read with the wrong layout — a plausible wrong path is
+  worse than none.
 - **Browser tabs are behind by however long the browser has been open.** A
   running Chromium holds its current session file with an exclusive lock, so
   Chronicle reads the newest file it *can* open — the previous session. The UI

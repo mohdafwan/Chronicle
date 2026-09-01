@@ -105,6 +105,8 @@ static CATALOGUE: &[Known] = &[
     k("hyper.exe",             "Hyper",                   Category::Terminal),
     k("conemu64.exe",          "ConEmu",                  Category::Terminal),
     k("mintty.exe",            "Git Bash",                Category::Terminal),
+    // The window of a classic console belongs to conhost, not to the shell.
+    k("conhost.exe",           "Console",                 Category::Terminal),
 
     // ── Documents ───────────────────────────────────────────────────────
     k("acrobat.exe",           "Adobe Acrobat",           Category::Document),

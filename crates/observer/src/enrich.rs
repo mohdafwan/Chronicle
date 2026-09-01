@@ -104,19 +104,27 @@ pub fn git_branch(root: &Path) -> Option<String> {
 /// Canonical `file:///c:/work/proj` form. Two observations of the same path
 /// must produce the same string, forever, or they become two artifacts.
 pub fn path_uri(p: &Path) -> String {
+    format!("file:///{}", normalised_path(p))
+}
+
+/// A path in the one spelling Chronicle stores, without any scheme.
+///
+/// Split out from [`path_uri`] because a terminal's directory needs the same
+/// normalisation under a different scheme, and two copies of this would
+/// eventually disagree about a drive letter.
+pub fn normalised_path(p: &Path) -> String {
     let s = p.to_string_lossy().replace('\\', "/");
     let s = s.trim_end_matches('/');
     // Normalise the drive letter so `C:` and `c:` never become two artifacts.
     let b = s.as_bytes();
-    let normalised = if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+    if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
         let mut out = String::with_capacity(s.len());
         out.push((b[0] as char).to_ascii_lowercase());
         out.push_str(&s[1..]);
         out
     } else {
         s.to_string()
-    };
-    format!("file:///{normalised}")
+    }
 }
 
 
@@ -160,6 +168,8 @@ pub fn default_enrichers() -> Vec<Box<dyn Enricher>> {
         Box::new(crate::chrome::Chromium::new()),
         #[cfg(windows)]
         Box::new(crate::explorer::Explorer),
+        #[cfg(windows)]
+        Box::new(crate::terminal::Terminal),
         Box::new(VsCode),
         Box::new(JetBrains),
         Box::new(Documents),
