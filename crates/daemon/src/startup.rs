@@ -156,9 +156,6 @@ mod imp {
 mod imp {
     use anyhow::{Result, bail};
 
-    pub fn command() -> Result<String> {
-        bail!("autostart is only implemented on Windows")
-    }
     pub fn registered() -> Option<String> {
         None
     }

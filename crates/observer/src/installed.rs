@@ -23,8 +23,11 @@
 //! arrive from the recorder instead: anything Chronicle has watched running is
 //! installed by definition, and the caller merges that in.
 
+#[cfg(windows)]
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// One application found on this machine.
 #[derive(Debug, Clone)]
@@ -57,6 +60,7 @@ pub fn scan() -> Vec<InstalledApp> {
     Vec::new()
 }
 
+#[cfg(windows)]
 fn insert(into: &mut BTreeMap<String, InstalledApp>, exe: PathBuf, name: Option<String>) {
     let Some(app_id) = app_id_of(&exe) else {
         return;
@@ -80,6 +84,7 @@ fn insert(into: &mut BTreeMap<String, InstalledApp>, exe: PathBuf, name: Option<
     });
 }
 
+#[cfg(windows)]
 fn app_id_of(exe: &Path) -> Option<String> {
     let name = exe.file_name()?.to_string_lossy().to_ascii_lowercase();
     name.ends_with(".exe").then_some(name)
@@ -135,6 +140,7 @@ pub fn is_supporting_software(name: &str) -> bool {
 }
 
 /// Executables that live inside Windows itself rather than being installed.
+#[cfg(windows)]
 fn is_system_path(exe: &Path) -> bool {
     let lower = exe.to_string_lossy().to_ascii_lowercase().replace('\\', "/");
     lower.contains("/windows/system32/")
@@ -143,6 +149,7 @@ fn is_system_path(exe: &Path) -> bool {
 }
 
 /// Executables that an uninstall entry points at which are not the application.
+#[cfg(windows)]
 fn is_not_an_application(app_id: &str) -> bool {
     const NOT_APPS: &[&str] = &[
         "uninstall.exe",
@@ -163,6 +170,7 @@ fn is_not_an_application(app_id: &str) -> bool {
 
 /// Installer display names carry version numbers and vendor prefixes that make
 /// a settings list hard to scan. "Mozilla Firefox (x64 en-US)" is Firefox.
+#[cfg(windows)]
 fn clean_name(raw: &str) -> String {
     let mut s = raw.trim();
     if let Some(i) = s.find(" (") {
@@ -175,6 +183,7 @@ fn clean_name(raw: &str) -> String {
 }
 
 /// `DisplayIcon` is usually `C:\path\app.exe,0`, sometimes quoted.
+#[cfg(windows)]
 fn exe_from_icon(icon: &str) -> Option<PathBuf> {
     let s = icon.trim().trim_matches('"');
     let s = match s.rfind(',') {
@@ -348,6 +357,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_uninstall_list_is_not_a_list_of_applications() {
+        // Everything here was really in the list on the machine this was
+        // written on, between Brave and Visual Studio Code.
+        assert!(is_supporting_software("Microsoft Visual C++ v14 Redistributable"));
+        assert!(is_supporting_software("Microsoft Windows Desktop Runtime"));
+        assert!(is_supporting_software("Dell PointStick Driver"));
+        assert!(is_supporting_software("Dell SupportAssist OS Recovery Plugin for Dell Update"));
+        assert!(is_supporting_software("IEDIAG.EXE"));
+        assert!(is_supporting_software("Codesetup Stable 08d4889f9ec4a1685d257b9b95de036c8"));
+
+        assert!(!is_supporting_software("Visual Studio Code"));
+        assert!(!is_supporting_software("Brave"));
+        assert!(!is_supporting_software("Figma"));
+        assert!(!is_supporting_software("Android Studio"));
+    }
+}
+
+/// Windows shapes: a registry `DisplayIcon`, an installer's display name, a
+/// path under `C:\Windows`. None of them mean anything on another platform,
+/// and the functions they cover are not compiled there.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
     fn a_display_icon_gives_up_its_executable() {
         assert_eq!(
             exe_from_icon(r"C:\Program Files\Thing\thing.exe,0"),
@@ -384,23 +418,6 @@ mod tests {
     fn a_name_that_is_only_digits_is_left_alone() {
         // Trimming would leave nothing, and no name is worse than an odd one.
         assert_eq!(clean_name("7"), "7");
-    }
-
-    #[test]
-    fn the_uninstall_list_is_not_a_list_of_applications() {
-        // Everything here was really in the list on the machine this was
-        // written on, between Brave and Visual Studio Code.
-        assert!(is_supporting_software("Microsoft Visual C++ v14 Redistributable"));
-        assert!(is_supporting_software("Microsoft Windows Desktop Runtime"));
-        assert!(is_supporting_software("Dell PointStick Driver"));
-        assert!(is_supporting_software("Dell SupportAssist OS Recovery Plugin for Dell Update"));
-        assert!(is_supporting_software("IEDIAG.EXE"));
-        assert!(is_supporting_software("Codesetup Stable 08d4889f9ec4a1685d257b9b95de036c8"));
-
-        assert!(!is_supporting_software("Visual Studio Code"));
-        assert!(!is_supporting_software("Brave"));
-        assert!(!is_supporting_software("Figma"));
-        assert!(!is_supporting_software("Android Studio"));
     }
 
     #[test]

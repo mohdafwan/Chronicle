@@ -529,13 +529,46 @@ mod tests {
         assert_eq!(found, vec![PathBuf::from(r"c:\work\spotted-android")]);
     }
 
+    /// Paths built by joining, never by writing separators into a literal.
+    ///
+    /// `resolve_from_recents` splits a path into components to read its last
+    /// one, and only Windows treats a backslash as a separator — so a literal
+    /// `r"c:\work\proj"` is three components on Windows and one everywhere
+    /// else, which is how this test used to pass here and fail on Linux.
+    fn scratch(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("chronicle-{name}"))
+    }
+
     #[test]
-    fn picks_the_shortest_existing_candidate() {
-        let candidates = vec![
-            PathBuf::from(r"c:\backup\old\proj"),
-            PathBuf::from(r"c:\work\proj"),
-        ];
-        let hit = resolve_from_recents("proj", &candidates);
-        assert_eq!(hit, Some(PathBuf::from(r"c:\work\proj")));
+    fn a_path_that_still_exists_wins_even_when_it_is_longer() {
+        let base = scratch("recents-existing");
+        let real = base.join("work").join("nested").join("proj");
+        std::fs::create_dir_all(&real).expect("creating the scratch directory");
+
+        // Shorter, but not there any more.
+        let gone = base.join("old").join("proj");
+        let hit = resolve_from_recents("proj", &[gone, real.clone()]);
+
+        std::fs::remove_dir_all(&base).ok();
+        assert_eq!(hit, Some(real));
+    }
+
+    #[test]
+    fn between_two_paths_that_are_both_gone_the_shortest_wins() {
+        // A nested copy under `backup` is almost never the project itself.
+        let base = scratch("recents-missing");
+        let deep = base.join("backup").join("old").join("proj");
+        let shallow = base.join("work").join("proj");
+
+        assert_eq!(
+            resolve_from_recents("proj", &[deep, shallow.clone()]),
+            Some(shallow)
+        );
+    }
+
+    #[test]
+    fn a_name_that_matches_nothing_resolves_to_nothing() {
+        let base = scratch("recents-none");
+        assert_eq!(resolve_from_recents("proj", &[base.join("work").join("other")]), None);
     }
 }

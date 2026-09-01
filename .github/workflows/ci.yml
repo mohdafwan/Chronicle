@@ -1,10 +1,19 @@
-# Windows is where Chronicle runs; Linux is here to keep the non-Windows stubs
-# compiling, since they are the only thing a future macOS port starts from.
+# Two jobs, because two different questions are being asked.
+#
+# Windows is where Chronicle runs, so that is where the tests mean anything:
+# the observer is Win32, `local_path` produces Windows paths, and the restore
+# engine launches `.exe` files. Running that suite on Linux does not test a
+# Linux Chronicle — there is no such thing — it just fails on backslashes.
+#
+# The other platforms answer a smaller and still worth having question: do the
+# non-Windows stubs still compile? They are the only thing a future macOS port
+# starts from, and they rot silently. So those platforms build the crates but
+# not the test targets.
 #
 # `cargo fmt --check` is deliberately not a gate: the tree is not rustfmt-clean
-# and the aligned catalogue in policy.rs is hand-set on purpose. Turning the
-# gate on means running `cargo fmt --all` once first, which is a change worth
-# making on its own rather than smuggling into a CI file.
+# and the aligned catalogue in policy.rs is hand-set on purpose. Turning it on
+# means running `cargo fmt --all` once first, which is a change worth making on
+# its own rather than smuggling into a CI file.
 
 name: CI
 
@@ -15,11 +24,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  windows:
+    name: test (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  stubs:
+    name: stubs compile (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [ubuntu-latest, macos-latest]
 
     runs-on: ${{ matrix.os }}
 
@@ -32,15 +60,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Tauri needs a webview to link against; the recorder needs nothing.
+      # Tauri links against the system web view; macOS already has one.
       - name: System dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Tests
-        run: cargo test --workspace
-
+      # No `--all-targets`: the test targets are Windows-shaped on purpose, and
+      # a green tick on them here would mean less than nothing.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace -- -D warnings

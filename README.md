@@ -214,6 +214,39 @@ to match the version in `Cargo.toml` or the workflow fails — a binary that
 reports the wrong version would either offer itself as an upgrade forever or
 never again.
 
+## Which platforms CI covers, and why
+
+Chronicle is a Windows application. Not "Windows first" — the observer is
+`GetForegroundWindow` and `IShellWindows` and a PEB read; `local_path` produces
+backslash paths; the restore engine launches `.exe` files. On any other
+platform `win.rs` is a stub that returns `None`, so the program starts, records
+nothing, and restores nothing.
+
+That splits CI in two, because two different questions are being asked.
+
+* **windows-latest** runs `cargo test --workspace` and
+  `cargo clippy --all-targets -- -D warnings`. This is the product, so this is
+  where the tests mean something.
+* **ubuntu-latest and macos-latest** run `cargo clippy --workspace` — the
+  crates, deliberately *not* `--all-targets`. The question they answer is "do
+  the non-Windows stubs still compile?", which is the only thing a future macOS
+  port has to start from and which rots silently otherwise.
+
+Running the full suite on Linux was tried and is worse than useless: it fails on
+`PathBuf::from(r"c:\work\proj")`, where a backslash is one component rather
+than three, and on `local_path`, which is Windows path handling by design. A
+green tick there would have meant a Linux Chronicle works. There is no Linux
+Chronicle.
+
+Releases are **Windows only** for the same reason. Publishing a macOS binary of
+a workspace recorder that cannot see a workspace is shipping a promise the
+binary does not keep. The earlier workflow built `.dmg`, `.deb` and `.AppImage`
+artifacts and — separately — never published `chronicled.exe` at all, so the
+recorder, the part that actually runs in the background, could not be
+downloaded. If macOS artifacts are wanted for development rather than for
+users, the matrix is three lines; the reason they are gone is honesty about
+what they do, not build time.
+
 ## Sources lists this machine, not the catalogue
 
 Settings → Sources used to list everything Chronicle recognises — every
