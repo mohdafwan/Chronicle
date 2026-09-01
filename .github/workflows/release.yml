@@ -37,10 +37,28 @@ jobs:
         run: |
           $crate = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
           $tag = '${{ github.ref_name }}' -replace '^v', ''
-          Write-Output "Cargo.toml $crate / tag $tag"
-          if ($crate -ne $tag) {
-            throw "tag $tag does not match the version in Cargo.toml ($crate)"
-          }
+          Write-Output "Cargo.toml says $crate; the tag says $tag"
+          if ($crate -eq $tag) { exit 0 }
+
+          # Almost always the same mistake: the tag went on the commit before
+          # the version bump, so it is one commit short. Say what to run rather
+          # than leaving a red cross on a page that shows no release.
+          Write-Output ""
+          Write-Output "Nothing was published. The tag is on a commit where Cargo.toml still"
+          Write-Output "says $crate, so the binaries would report $crate under a v$tag tag —"
+          Write-Output "and the updater compares versions, so that build would offer itself"
+          Write-Output "as an upgrade forever."
+          Write-Output ""
+          Write-Output "If the bump is the next commit along, move the tag onto it:"
+          Write-Output "    git tag -f ${{ github.ref_name }} <commit that bumps Cargo.toml>"
+          Write-Output "    git push -f origin ${{ github.ref_name }}"
+          Write-Output ""
+          Write-Output "Next time, bump and tag together:"
+          Write-Output "    # edit Cargo.toml, then"
+          Write-Output "    cargo check                     # so Cargo.lock follows"
+          Write-Output "    git commit -am 'release v$tag'"
+          Write-Output "    git tag v$tag && git push && git push --tags"
+          throw "tag v$tag does not match the version in Cargo.toml ($crate)"
 
       - name: Tests
         run: cargo test --workspace
