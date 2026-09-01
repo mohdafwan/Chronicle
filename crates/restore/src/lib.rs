@@ -150,6 +150,16 @@ pub fn plan(detail: &SessionDetail) -> Plan {
 
 fn item_for(a: &SessionArtifact) -> PlanItem {
     let exe = a.app_exe.as_ref().map(PathBuf::from).filter(|p| p.exists());
+
+    // An `app://` artifact never had a path to resolve — it records that an
+    // application was open when nothing inside it could be identified. Sending
+    // that down the path branch produced "Chronicle recorded the name but never
+    // resolved a path" and a row the user had to act on by hand, for something
+    // Chronicle can do with one call to the binary it watched running.
+    if a.kind == ArtifactKind::App {
+        return app_item(a, exe);
+    }
+
     let path = local_path(&a.uri);
 
     let (fidelity, action, note) = match (&path, &exe) {
@@ -210,6 +220,55 @@ fn item_for(a: &SessionArtifact) -> PlanItem {
     }
 }
 
+/// Reopening an application when that is all Chronicle knows about it.
+///
+/// This is honestly `Open`, never `Exact`: the window comes back empty, and
+/// whatever was in it is not coming with it. Saying so in the note is the
+/// difference between a restore the user can trust and one that quietly
+/// overstates itself.
+fn app_item(a: &SessionArtifact, exe: Option<PathBuf>) -> PlanItem {
+    // The detail line says what the button will actually run, rather than
+    // repeating `app://name.exe` back at someone who can already read the label.
+    let (fidelity, action, note, detail) = match exe {
+        Some(program) => {
+            let detail = program.display().to_string();
+            (
+                Fidelity::Open,
+                Action::Launch {
+                    program,
+                    args: Vec::new(),
+                },
+                Some(format!(
+                    "{} reopens; what was open inside it was never resolved",
+                    a.app_name
+                )),
+                detail,
+            )
+        }
+        None => (
+            Fidelity::NeedsYou,
+            Action::Manual {
+                instruction: a.app_name.clone(),
+            },
+            Some(format!("{} is not installed on this machine any more", a.app_name)),
+            a.uri.clone(),
+        ),
+    };
+
+    PlanItem {
+        key: format!("a{}", a.artifact_id),
+        label: a.app_name.clone(),
+        detail,
+        app_name: a.app_name.clone(),
+        category: a.category,
+        selected: fidelity.actionable(),
+        fidelity,
+        action,
+        note,
+        artifact_ids: vec![a.artifact_id],
+    }
+}
+
 /// Per-application launch arguments. This is the table that grows as adapters
 /// are added; everything else in the planner stays the same.
 fn launch_recipe(app_id: &str, path: &std::path::Path, a: &SessionArtifact) -> (Fidelity, Vec<String>) {
@@ -230,7 +289,19 @@ fn launch_recipe(app_id: &str, path: &std::path::Path, a: &SessionArtifact) -> (
 
         // Terminals open in the directory. The last command is never run —
         // the machine cannot tell a build from a deploy.
-        "windowsterminal.exe" | "wt.exe" => (Fidelity::DeepLink, vec!["-d".into(), p]),
+        //
+        // `-d` takes a directory, and a path lifted out of a terminal title is
+        // as often a file as a folder. Handing `wt` a file makes it refuse to
+        // start at all, so a file becomes the folder that holds it — which is
+        // where the prompt was anyway.
+        "windowsterminal.exe" | "wt.exe" => {
+            let dir = if path.is_dir() {
+                p
+            } else {
+                path.parent().map(|d| d.display().to_string()).unwrap_or(p)
+            };
+            (Fidelity::DeepLink, vec!["-d".into(), dir])
+        }
 
         "explorer.exe" => (Fidelity::Open, vec![p]),
 
@@ -601,6 +672,63 @@ mod tests {
         let p = plan(&d);
         assert_eq!(p.items.len(), 2);
         assert_eq!(local_path(&format!("terminal://{dir}")), local_path(&format!("file:///{dir}")));
+    }
+
+    #[test]
+    fn a_bare_app_reopens_itself_rather_than_asking_the_user() {
+        // Chronicle watched this binary run. Asking the user to start it by
+        // hand is asking for work Chronicle can do.
+        let exe = std::env::current_exe().unwrap();
+        let d = detail(vec![artifact(
+            1, ArtifactKind::App, "app://figma.exe", "figma.exe", Category::Design, exe.to_str(),
+        )]);
+        let item = &plan(&d).items[0];
+        assert_eq!(item.fidelity, Fidelity::Open);
+        assert!(item.selected);
+        assert!(matches!(item.action, Action::Launch { ref args, .. } if args.is_empty()));
+        assert!(item.note.as_deref().unwrap().contains("never resolved"));
+    }
+
+    #[test]
+    fn a_bare_app_says_open_not_exact() {
+        // The window comes back empty. Claiming more than that is the one thing
+        // the fidelity ladder exists to prevent.
+        let exe = std::env::current_exe().unwrap();
+        let d = detail(vec![artifact(
+            1, ArtifactKind::App, "app://figma.exe", "figma.exe", Category::Design, exe.to_str(),
+        )]);
+        assert_ne!(plan(&d).items[0].fidelity, Fidelity::Exact);
+    }
+
+    #[test]
+    fn an_uninstalled_app_asks_the_user_and_says_why() {
+        let d = detail(vec![artifact(
+            1, ArtifactKind::App, "app://figma.exe", "figma.exe", Category::Design, None,
+        )]);
+        let item = &plan(&d).items[0];
+        assert_eq!(item.fidelity, Fidelity::NeedsYou);
+        assert!(item.note.as_deref().unwrap().contains("not installed"));
+    }
+
+    #[test]
+    fn a_terminal_given_a_file_opens_the_folder_that_holds_it() {
+        // `wt -d some.exe` refuses to start. Paths lifted from a terminal
+        // title are as often files as folders.
+        let exe = std::env::current_exe().unwrap();
+        let uri = format!("terminal://{}", exe.to_string_lossy().replace('\\', "/"));
+        let d = detail(vec![artifact(
+            1, ArtifactKind::Terminal, &uri, "windowsterminal.exe",
+            Category::Terminal, exe.to_str(),
+        )]);
+        let Action::Launch { args, .. } = &plan(&d).items[0].action else {
+            panic!("expected a launch");
+        };
+        assert_eq!(args[0], "-d");
+        assert!(
+            std::path::Path::new(&args[1]).is_dir(),
+            "{} is not a directory",
+            args[1]
+        );
     }
 
     fn detail(artifacts: Vec<SessionArtifact>) -> SessionDetail {

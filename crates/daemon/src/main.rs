@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 mod startup;
+mod update;
 
 /// How often the foreground window is looked at. Cheap: three Win32 calls.
 const POLL: std::time::Duration = std::time::Duration::from_secs(2);
@@ -35,6 +36,7 @@ fn main() -> Result<()> {
     match cmd {
         "run" | "--background" => run(background),
         "autostart" => startup::command_line(args.get(1).map(String::as_str)),
+        "update" => update::command_line(&args[1..]),
         "doctor" => doctor(),
         "scan" => scan(),
         "status" => status(),
@@ -71,6 +73,7 @@ fn help() {
 
   run                 watch the desktop and record sessions (default)
   autostart [on|off]  start recording automatically when you log in
+  update [--install]  check github for a newer Chronicle (--auto off|check|install)
   doctor              show what Chronicle can see in the window in front of you
   scan                run the enrichers over every window you have open
   status              database location, size, counts, recording state
@@ -80,7 +83,7 @@ fn help() {
   plan <id>           what a restore would do, without doing any of it
   restore <id> --go   actually reopen the workspace (dry run without --go)
   tabs                what Chronicle can read from your browsers right now
-  sources             per-app capture policy, as it will be applied
+  sources [--all]     per-app capture policy for the apps installed here
   forget <hours>      permanently delete everything from the last N hours
   path                print the database path
 "
@@ -178,6 +181,10 @@ fn run(background: bool) -> Result<()> {
             );
         }
     }
+    // A previous update left the binary it replaced beside the new one; it is
+    // only unlocked now that nothing is running from it.
+    update::sweep_retired();
+
     store.mark_running()?;
     // Beat once immediately. The window decides "is the recorder alive?" from
     // heartbeat freshness, and waiting a whole minute for the first one makes
@@ -195,6 +202,8 @@ fn run(background: bool) -> Result<()> {
 
     tracing::info!(db = %Store::default_path()?.display(), "recording");
 
+    let started_at = Utc::now();
+    let mut last_update_check = Utc::now();
     let mut last_key = String::new();
     let mut last_write = Utc::now() - Duration::seconds(HEARTBEAT_SECS);
     let mut last_sessionise = Utc::now();
@@ -203,6 +212,14 @@ fn run(background: bool) -> Result<()> {
 
     while !stop.load(Ordering::SeqCst) {
         let now = Utc::now();
+
+        // Someone — an update, most likely — has asked this recorder to stand
+        // down. Leaving by the front door means the session in progress ends
+        // properly rather than being recovered as interrupted.
+        if store.shutdown_requested(started_at).unwrap_or(false) {
+            tracing::info!("stopping at request");
+            break;
+        }
 
         let idle = chronicle_observer::idle_seconds();
         if idle >= IDLE_CUTOFF_SECS || chronicle_observer::is_locked() {
@@ -234,6 +251,12 @@ fn run(background: bool) -> Result<()> {
             last_sessionise = now;
         }
 
+        // The one piece of network in the product, and only if asked for.
+        if (now - last_update_check).num_seconds() >= 3600 {
+            last_update_check = now;
+            check_for_updates(&store, now);
+        }
+
         // Pick up settings changes without a restart.
         if (now - last_policy_reload).num_seconds() >= 300 {
             if let Ok(p) = store.policies() {
@@ -253,6 +276,47 @@ fn run(background: bool) -> Result<()> {
     store.mark_clean_shutdown()?;
     tracing::info!("stopped cleanly");
     Ok(())
+}
+
+/// The automatic half of the updater, run from the recorder's loop.
+///
+/// Does nothing at all unless the user turned it on, and even then contacts
+/// the network at most once a day. A failure is logged and forgotten: an
+/// unreachable GitHub is not a reason to stop recording.
+fn check_for_updates(store: &Store, now: DateTime<Utc>) {
+    let mode = update::auto_setting(store);
+    if mode == update::Auto::Off || !update::check_due(store, now) {
+        return;
+    }
+
+    let release = match update::latest() {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::debug!(error = %e, "update check failed");
+            update::mark_checked(store, now, None);
+            return;
+        }
+    };
+
+    if release.version <= update::current() {
+        update::mark_checked(store, now, None);
+        return;
+    }
+    update::mark_checked(store, now, Some(release.version));
+    tracing::info!(version = %release.version, "a newer Chronicle is available");
+
+    if mode != update::Auto::Install {
+        return;
+    }
+    match update::install(&release) {
+        // The new binary is on disk but this process is still the old one, so
+        // it asks itself to stop; the next start is the new version.
+        Ok(done) => {
+            tracing::info!(version = %done.version, files = ?done.files, "installed an update");
+            let _ = store.request_shutdown(now);
+        }
+        Err(e) => tracing::warn!(error = %e, "could not install the update"),
+    }
 }
 
 fn retention_days(store: &Store) -> i64 {
@@ -412,6 +476,7 @@ fn status() -> Result<()> {
     println!("  observations {observations}");
     println!("  retention    {} days", retention_days(&store));
     println!("  autostart    {}", startup::describe());
+    println!("  version      {}", update::describe(&store));
     match store.last_heartbeat()? {
         Some(t) => println!("  last beat    {}", stamp(t)),
         None => println!("  last beat    never"),
@@ -683,11 +748,58 @@ Undo is not implemented yet; close anything you did not want by hand.");
     Ok(())
 }
 
+/// Every application Chronicle could be asked about on this machine: what the
+/// registry says is installed, plus everything the recorder has already seen.
+///
+/// The second half matters for Store apps — WhatsApp, Windows Terminal — which
+/// live under `WindowsApps` and appear in no readable registry view, but which
+/// Chronicle has watched running and therefore knows perfectly well are here.
+fn discovered_apps(store: &Store) -> Vec<chronicle_core::policy::Discovered> {
+    use chronicle_core::policy::Discovered;
+    let mut out: Vec<Discovered> = chronicle_observer::installed::scan()
+        .into_iter()
+        .map(|a| Discovered {
+            app_id: a.app_id,
+            display_name: a.display_name,
+        })
+        .collect();
+
+    let seen: std::collections::HashSet<String> = out.iter().map(|d| d.app_id.clone()).collect();
+    for (app_id, display_name) in store.known_apps().unwrap_or_default() {
+        if seen.contains(&app_id)
+            || chronicle_observer::installed::is_supporting_software(&display_name)
+        {
+            continue;
+        }
+        out.push(Discovered {
+            app_id,
+            display_name: Some(display_name),
+        });
+    }
+    out
+}
+
 fn sources() -> Result<()> {
     let store = open_store()?;
     let policies = store.policies()?;
+
+    let everything = std::env::args().any(|a| a == "--all");
+    let rows = if everything {
+        chronicle_core::policy::catalogue(&policies)
+    } else {
+        chronicle_core::policy::sources(&policies, &discovered_apps(&store))
+    };
+
+    let mut hidden: Vec<String> = Vec::new();
     let mut last = String::new();
-    for e in chronicle_core::policy::catalogue(&policies) {
+    for e in rows {
+        // Not on this machine, so it cannot be recorded whatever the setting.
+        // Naming them in one line keeps "are password managers excluded?"
+        // answerable without a screen of software the user does not have.
+        if !everything && !e.installed {
+            hidden.push(e.display_name.clone());
+            continue;
+        }
         let cat = e.category.label().to_string();
         if cat != last {
             println!("\n{}", cat.to_uppercase());
@@ -698,14 +810,28 @@ fn sources() -> Result<()> {
             CapturePolicy::TitlesOff => "titles off",
             CapturePolicy::Ignore => "ignore",
         };
-        println!(
-            "  {:<24} {:<12}{}",
-            e.display_name,
-            state,
-            if e.auto_denied { "  (denied by a shipped rule)" } else { "" }
-        );
+        // A permanently denied app can carry a user override that does nothing;
+        // saying "you turned this on" about a password manager Chronicle will
+        // never record either way would be alarming and untrue.
+        let overruled = e.auto_denied && e.policy == CapturePolicy::Ignore;
+        let why = match (e.auto_denied, e.configured, overruled) {
+            (true, _, true) => "  (never recorded, whatever the setting says)",
+            (true, true, _) => "  (you turned this on; the shipped default is off)",
+            (true, false, _) => "  (off by default)",
+            (false, true, _) => "  (your setting)",
+            (false, false, _) => "",
+        };
+        println!("  {:<24} {:<12}{}", e.display_name, state, why);
     }
     println!();
+    if !everything {
+        if !hidden.is_empty() {
+            println!("Not installed here, so never recorded either way:");
+            println!("  {}", hidden.join(", "));
+            println!();
+        }
+        println!("`chronicled sources --all` lists the whole catalogue instead.");
+    }
     Ok(())
 }
 

@@ -9,6 +9,7 @@ pub mod chrome;
 pub mod enrich;
 #[cfg(windows)]
 pub mod explorer;
+pub mod installed;
 #[cfg(windows)]
 pub mod terminal;
 

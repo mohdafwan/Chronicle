@@ -139,6 +139,10 @@ struct Source {
     category_label: String,
     policy: String,
     auto_denied: bool,
+    installed: bool,
+    configured: bool,
+    /// Other executables the same row covers, so one click reaches all of them.
+    aliases: Vec<String>,
 }
 
 // ── commands ────────────────────────────────────────────────────────────
@@ -404,11 +408,46 @@ fn get_status(state: tauri::State<AppState>) -> Reply<Status> {
     })
 }
 
+/// Everything Chronicle could be asked about on this machine.
+///
+/// The registry says what is installed; the recorder's own `apps` table covers
+/// Store apps, whose install directory is not readable but which Chronicle has
+/// plainly watched running. Neither list is stored anywhere — it is rebuilt
+/// each time the panel opens and dropped when it closes.
+fn discovered(store: &Store) -> Vec<policy::Discovered> {
+    let mut out: Vec<policy::Discovered> = chronicle_observer::installed::scan()
+        .into_iter()
+        .map(|a| policy::Discovered {
+            app_id: a.app_id,
+            display_name: a.display_name,
+        })
+        .collect();
+
+    let seen: std::collections::HashSet<String> = out.iter().map(|d| d.app_id.clone()).collect();
+    for (app_id, display_name) in store.known_apps().unwrap_or_default() {
+        if seen.contains(&app_id)
+            || chronicle_observer::installed::is_supporting_software(&display_name)
+        {
+            continue;
+        }
+        out.push(policy::Discovered {
+            app_id,
+            display_name: Some(display_name),
+        });
+    }
+    out
+}
+
 #[tauri::command]
-fn list_sources(state: tauri::State<AppState>) -> Reply<Vec<Source>> {
+fn list_sources(state: tauri::State<AppState>, all: bool) -> Reply<Vec<Source>> {
     let store = state.store.lock().map_err(err)?;
     let policies = store.policies().map_err(err)?;
-    Ok(policy::catalogue(&policies)
+    let rows = if all {
+        policy::catalogue(&policies)
+    } else {
+        policy::sources(&policies, &discovered(&store))
+    };
+    Ok(rows
         .into_iter()
         .map(|e| Source {
             app_id: e.app_id,
@@ -422,23 +461,34 @@ fn list_sources(state: tauri::State<AppState>) -> Reply<Vec<Source>> {
             }
             .to_string(),
             auto_denied: e.auto_denied,
+            installed: e.installed,
+            configured: e.configured,
+            aliases: e.aliases,
         })
         .collect())
 }
 
 #[tauri::command]
-fn set_source_policy(state: tauri::State<AppState>, app_id: String, policy: String) -> Reply<()> {
+fn set_source_policy(
+    state: tauri::State<AppState>,
+    app_id: String,
+    policy: String,
+    aliases: Option<Vec<String>>,
+) -> Reply<()> {
     let p = match policy.as_str() {
         "titles_off" => CapturePolicy::TitlesOff,
         "ignore" => CapturePolicy::Ignore,
         _ => CapturePolicy::Full,
     };
-    state
-        .store
-        .lock()
-        .map_err(err)?
-        .set_policy(&app_id, p)
-        .map_err(err)
+    let store = state.store.lock().map_err(err)?;
+    store.set_policy(&app_id, p).map_err(err)?;
+    // One row can stand for several executables. Switching off "Windows
+    // Terminal" and leaving `wt.exe` recording would be worse than not
+    // offering the switch.
+    for alias in aliases.unwrap_or_default() {
+        store.set_policy(&alias, p).map_err(err)?;
+    }
+    Ok(())
 }
 
 fn main() {

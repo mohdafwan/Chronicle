@@ -101,6 +101,9 @@ Keyboard: `↑`/`↓` sessions, `Enter` restore, `Ctrl+K` search, `F2` rename,
 The frontend uses the platform's own fonts and ships no external assets. The
 content security policy in `tauri.conf.json` allows `'self'` and the Tauri IPC
 channel only, so this is enforced by the webview rather than by good intentions.
+The update check is the one piece of network in the product, it lives in the
+recorder rather than the window, and it is off until switched on — see
+[Updating](#updating).
 The cost is that the app does not use the specification's typefaces; bundling
 them locally is a follow-up, not a reason to fetch them at runtime.
 
@@ -169,6 +172,89 @@ four directories come back as four tabs of one window rather than four windows.
 Nothing typed at those prompts is replayed: Chronicle cannot tell a build from a
 deploy.
 
+## Updating
+
+```
+chronicled update                       # ask GitHub whether there is a newer one
+chronicled update --install             # fetch it, verify it, restart the recorder
+chronicled update --auto off            # the default
+chronicled update --auto check          # look once a day, tell me, install nothing
+chronicled update --auto install        # look once a day and apply it
+```
+
+This is the only part of Chronicle that uses the network, so the whole of that
+contact is worth stating exactly: one `GET` to `api.github.com` for the latest
+release, and one `GET` to each asset it names. No account, no cookie, no
+identifier, no telemetry. Nothing about a session, a title, a path or a URL
+ever leaves the machine. The request carries a `User-Agent` of
+`Chronicle/<version>` because GitHub rejects requests without one.
+
+It is **off by default**. A background recorder that quietly reaches the
+internet on a schedule the user never agreed to is the shape of thing this
+product exists not to be, so the automatic check is something the user turns on
+rather than something they discover.
+
+Every download is checked against the release's own `SHA256SUMS` before it is
+allowed near the install directory, and a release that does not publish that
+file is refused rather than trusted. The hash comes from the operating system's
+own SHA-256 (`BCryptHash`), and the transport is WinHTTP rather than a bundled
+HTTP client — which keeps the binary around 2.5 MB instead of 4, and means the
+system proxy and any corporate certificate store work without Chronicle knowing
+anything about either.
+
+Windows will not delete a running executable but it will rename one, so an
+update moves the old binary aside and puts the new one in its place; the next
+start sweeps up what is no longer locked. The running recorder is then *asked*
+to stop through a flag in the database rather than killed, so the session it was
+in the middle of ends properly instead of turning up tomorrow marked
+"interrupted".
+
+Releases are built by `.github/workflows/release.yml` on a `v*` tag. The tag has
+to match the version in `Cargo.toml` or the workflow fails — a binary that
+reports the wrong version would either offer itself as an upgrade forever or
+never again.
+
+## Sources lists this machine, not the catalogue
+
+Settings → Sources used to list everything Chronicle recognises — every
+browser, every JetBrains IDE, every password manager — whether or not any of it
+was installed. That is a list of Chronicle's opinions rather than of the user's
+computer, and the one app they came to switch off was somewhere past Krita.
+Worse, an installed app the catalogue had never heard of could not be
+configured at all until Chronicle happened to record it, which is backwards for
+a privacy control.
+
+The list now comes from the machine:
+
+* `App Paths` in the registry, which maps an executable name straight to its
+  path — the same identity Chronicle files sessions under.
+* The uninstall keys, which is what "Add or remove programs" reads.
+* Chronicle's own `apps` table, which covers Store apps: `WindowsApps` is not
+  readable, but an application the recorder has watched running is installed by
+  definition.
+
+None of it is stored. The scan runs when the panel opens, builds the list, and
+is dropped — Chronicle keeps no inventory of installed software, and this never
+touches the network.
+
+The uninstall list is not a list of applications; it is a list of everything
+that knows how to remove itself, so most of it is redistributables, drivers and
+language packs that have no window and can never appear in a session. Those are
+filtered by name, which is a heuristic and will occasionally be wrong in both
+directions — hence **Show all known apps** in the panel, and
+`chronicled sources --all`. On the machine this was written on the list went
+from about 200 rows to 60.
+
+Applications that are not installed still appear, at the bottom, when a shipped
+rule denies them: "are password managers excluded?" deserves an answer that
+does not depend on having one installed.
+
+One row can cover several executables. Windows Terminal ships as both
+`windowsterminal.exe` and `wt.exe`; showing two rows makes one app look like
+two, and showing one row while writing the setting to one executable would
+leave the other quietly recording. The row carries its aliases and the switch
+writes to all of them.
+
 ## Known gaps
 
 - **A terminal's tabs are not split by window.** Windows Terminal runs every
@@ -177,6 +263,17 @@ deploy.
   folder views apart, and unlike Explorer there is no `IShellWindows` to ask.
   Two terminal windows of three tabs restore as one window of six. The
   directories are right; the window split is not.
+- **The window cannot update Chronicle**, only the CLI can. Same reason as
+  autostart: the code lives in the recorder's binary, which the Tauri app
+  cannot import.
+- **Some entries are named by their executable.** An application that
+  registered an app path but no display name arrives as `mspaint` or `wsl`
+  rather than "Paint" or "Windows Subsystem for Linux". The real name is in the
+  binary's version resource, which nothing reads yet.
+- **A web view host is recorded under its own name.** `msedgewebview2.exe`
+  hosts whatever asked for it, so an app that ships as a web view arrives
+  looking like a generic Microsoft component with the hosted app's title. The
+  deny list keys on executables, and this one executable is several apps.
 - **A 32-bit shell reports no directory.** The offsets used to read
   `RTL_USER_PROCESS_PARAMETERS` are the x64 ones, and a WOW64 process is
   declined rather than read with the wrong layout — a plausible wrong path is

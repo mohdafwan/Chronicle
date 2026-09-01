@@ -406,6 +406,19 @@ impl Store {
 
     /// The distinct applications a session touched, most-used first. Feeds the
     /// row of tiles on each card without loading the whole session.
+    /// Every application Chronicle has ever recorded, as (app_id, name).
+    ///
+    /// Proof of installation that the registry cannot give: a Store app lives
+    /// under `WindowsApps`, which is not readable, but if Chronicle watched it
+    /// run then it is on this machine.
+    pub fn known_apps(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT app_id, display_name FROM apps ORDER BY display_name")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     pub fn session_apps(&self, id: SessionId) -> Result<Vec<(String, Category, i64)>> {
         let mut stmt = self.conn.prepare(
             "SELECT COALESCE(ap.display_name, a.app_id),
@@ -620,6 +633,35 @@ impl Store {
     /// exactly the session the user is about to come looking for.
     pub fn crashed_last_run(&self) -> Result<bool> {
         Ok(matches!(self.meta_get("clean_shutdown")?.as_deref(), Some("0")))
+    }
+
+    /// Whether a recorder is running right now, judged by heartbeat freshness.
+    ///
+    /// The same signal the window uses to decide between "Recording" and
+    /// "Not recording", so the two can never disagree about it.
+    pub fn recorder_is_live(&self) -> Result<bool> {
+        let Some(beat) = self.last_heartbeat()? else {
+            return Ok(false);
+        };
+        Ok(!self.crashed_last_run()? || (Utc::now() - beat).num_seconds() < 120)
+    }
+
+    /// Ask the running recorder to stop, without killing it.
+    ///
+    /// An update has to replace a binary that is in use, and terminating the
+    /// recorder to do it would leave the session it was in the middle of
+    /// looking like a crash. This asks; the run loop notices within a tick and
+    /// takes its own clean-shutdown path.
+    pub fn request_shutdown(&self, at: DateTime<Utc>) -> Result<()> {
+        self.meta_set("shutdown_request", &ms(at).to_string())
+    }
+
+    /// True when a stop was requested after this recorder started.
+    pub fn shutdown_requested(&self, since: DateTime<Utc>) -> Result<bool> {
+        Ok(self
+            .meta_get("shutdown_request")?
+            .and_then(|s| s.parse::<i64>().ok())
+            .is_some_and(|at| at >= ms(since)))
     }
 
     pub fn counts(&self) -> Result<(i64, i64, i64)> {

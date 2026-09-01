@@ -1,127 +1,97 @@
+# Publishes the two binaries Chronicle actually installs, plus the checksum
+# file the built-in updater verifies them against.
+#
+# Windows only, deliberately. The observer is Win32 — `GetForegroundWindow`,
+# `IShellWindows`, the PEB read that gives a terminal its directory — and the
+# other platforms compile only against stubs that observe nothing. Publishing a
+# macOS build of a workspace recorder that cannot see a workspace would be
+# shipping a promise the binary does not keep.
+
 name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   release:
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: chronicle
-            asset_name: chronicle-linux-x86_64
-
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: chronicle.exe
-            asset_name: chronicle-windows-x86_64.exe
-
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: chronicle
-            asset_name: chronicle-macos-x86_64
-
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: chronicle
-            asset_name: chronicle-macos-aarch64
-
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies (Ubuntu)
-        if: runner.os == 'Linux'
+      - uses: Swatinem/rust-cache@v2
+
+      # A tag that disagrees with Cargo.toml ships a binary that reports the
+      # wrong version, and the updater compares versions — so it would either
+      # offer an upgrade to what is already installed, or never offer one again.
+      - name: Tag must match the crate version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libssl-dev \
-            pkg-config \
-            build-essential
+          $crate = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $tag = '${{ github.ref_name }}' -replace '^v', ''
+          Write-Output "Cargo.toml $crate / tag $tag"
+          if ($crate -ne $tag) {
+            throw "tag $tag does not match the version in Cargo.toml ($crate)"
+          }
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Tests
+        run: cargo test --workspace
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release
 
-      - name: Build with Tauri
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Release ${{ github.ref_name }}
-          releaseBody: 'See the assets to download and install this version.'
-          releaseDraft: false
-          prerelease: false
-          args: --target ${{ matrix.target }}
+      # Named for what they are, because the updater looks them up by name and
+      # `chronicle.exe` alone says nothing about which platform it is for.
+      - name: Assemble
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\chronicled.exe dist\chronicled-windows-x86_64.exe
+          Copy-Item target\release\chronicle.exe  dist\chronicle-windows-x86_64.exe
 
-      - name: Upload Release Assets (Linux)
-        if: runner.os == 'Linux'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            target/${{ matrix.target }}/release/chronicle
-            target/${{ matrix.target }}/release/bundle/deb/*.deb
-            target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `sha256  name`, the format sha256sum writes and the updater reads.
+          # ASCII on purpose: a BOM would ride along on the first hash.
+          $lines = Get-ChildItem dist -File | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          }
+          $lines | Set-Content dist\SHA256SUMS -Encoding ascii
+          Get-Content dist\SHA256SUMS
 
-      - name: Upload Release Assets (Windows)
-        if: runner.os == 'Windows'
-        uses: softprops/action-gh-release@v1
+      - name: Publish
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            target/${{ matrix.target }}/release/chronicle.exe
-            target/${{ matrix.target }}/release/bundle/msi/*.msi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            dist/chronicled-windows-x86_64.exe
+            dist/chronicle-windows-x86_64.exe
+            dist/SHA256SUMS
+          body: |
+            ## Chronicle ${{ github.ref_name }}
 
-      - name: Upload Release Assets (macOS)
-        if: runner.os == 'macOS'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            target/${{ matrix.target }}/release/chronicle
-            target/${{ matrix.target }}/release/bundle/macos/*.app
-            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            | file | what it is |
+            | --- | --- |
+            | `chronicled-windows-x86_64.exe` | the recorder — the part that runs in the background |
+            | `chronicle-windows-x86_64.exe` | the window |
+            | `SHA256SUMS` | checksums, which the built-in updater verifies before installing |
+
+            **Already have Chronicle?** `chronicled update --install` fetches this
+            release, checks it against `SHA256SUMS`, replaces the binaries and
+            restarts the recorder without losing the session in progress.
+
+            **First install?** Save both binaries somewhere outside your build
+            directory — `%LOCALAPPDATA%\Programs\Chronicle` is the usual place —
+            then run `chronicled autostart on` so the recorder starts with Windows.
+
+            Chronicle records only on this machine and uploads nothing. The one
+            time it uses the network is this update check, and that is off until
+            you turn it on with `chronicled update --auto check`.

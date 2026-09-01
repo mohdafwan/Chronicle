@@ -33,6 +33,31 @@ pub struct AppEntry {
     /// True when this app was placed on the deny list automatically. Shown in
     /// the UI as "added automatically" so the user knows it was not their doing.
     pub auto_denied: bool,
+    /// Whether this application is actually on the machine.
+    pub installed: bool,
+    /// Other executables this one row stands for.
+    ///
+    /// Windows Terminal ships as both `windowsterminal.exe` and `wt.exe`, and
+    /// Teams as two more. Showing one row per executable makes the same app
+    /// appear twice; showing one row and writing the setting to only one of
+    /// them would leave the other quietly recording.
+    pub aliases: Vec<String>,
+    /// True when the user has explicitly chosen a policy for this app, rather
+    /// than inheriting the shipped default. It is the difference between "we
+    /// decided this" and "you decided this", and only one of those is worth
+    /// arguing with.
+    pub configured: bool,
+}
+
+/// An application found on the machine, from wherever the caller found it.
+///
+/// The core crate cannot read the registry — it is the portable half — so
+/// discovery happens in the observer and arrives here as plain data.
+#[derive(Debug, Clone)]
+pub struct Discovered {
+    pub app_id: String,
+    /// What the installer called it, when the catalogue has no better name.
+    pub display_name: Option<String>,
 }
 
 /// The catalogue: exe name → (pretty name, category, default policy).
@@ -130,6 +155,9 @@ static CATALOGUE: &[Known] = &[
     denied("ms-teams.exe",     "Microsoft Teams",         Category::Comms),
     denied("teams.exe",        "Microsoft Teams",         Category::Comms),
     denied("outlook.exe",      "Outlook",                 Category::Comms),
+    // The rebuilt Outlook ships as olk.exe and matched nothing, so mail was
+    // being recorded by an executable name the deny list had never heard of.
+    denied("olk.exe",          "Outlook",                 Category::Comms),
     denied("thunderbird.exe",  "Thunderbird",             Category::Comms),
     denied("zoom.exe",         "Zoom",                    Category::Comms),
     denied("skype.exe",        "Skype",                   Category::Comms),
@@ -159,6 +187,14 @@ static CATALOGUE: &[Known] = &[
     denied("startmenuexperiencehost.exe","Start Menu",    Category::Other),
     denied("textinputhost.exe",     "Text Input",         Category::Other),
     denied("applicationframehost.exe","Windows App",      Category::Other),
+    denied("shellhost.exe",         "Windows Shell",      Category::Other),
+    denied("sihost.exe",            "Windows Shell",      Category::Other),
+    denied("searchapp.exe",         "Windows Search",     Category::Other),
+
+    // ── Ordinary applications that were being named by guesswork ────────
+    k("snippingtool.exe",           "Snipping Tool",      Category::Other),
+    k("notepad.exe",                "Notepad",            Category::Document),
+    k("calc.exe",                   "Calculator",         Category::Other),
 ];
 
 /// Executables that are hard-denied. No preference re-enables these; the
@@ -180,6 +216,33 @@ static PERMANENT_DENY: &[&str] = &[
     "lockapp.exe",
     "winlogon.exe",
     "lsass.exe",
+];
+
+/// Parts of Windows itself that own a window but are not applications.
+///
+/// These are hard-denied for a different reason than the list above: not
+/// because of what they might contain, but because none of them is a thing
+/// anyone works in. `textinputhost.exe` earns its place on both counts — it is
+/// the touch keyboard and the IME candidate window, so its title can be the
+/// text being typed, which is the one thing Chronicle promises never to record.
+///
+/// A user setting cannot re-enable these. Offering the choice would imply
+/// there is a reason to make it.
+static SHELL_COMPONENTS: &[&str] = &[
+    "textinputhost.exe",
+    // The touch keyboard, same class of thing and the same reason.
+    "tabtip.exe",
+    "tabtip32.exe",
+    "applicationframehost.exe",
+    "searchhost.exe",
+    "searchapp.exe",
+    "shellexperiencehost.exe",
+    "startmenuexperiencehost.exe",
+    "shellhost.exe",
+    "sihost.exe",
+    "dwm.exe",
+    "widgets.exe",
+    "widgetboard.exe",
 ];
 
 /// Substrings in an executable or product name that trigger an automatic
@@ -215,7 +278,11 @@ impl Policies {
         let id = app_id.to_ascii_lowercase();
         let canonical = canonical_id(&id);
 
-        if PERMANENT_DENY.contains(&id.as_str()) || PERMANENT_DENY.contains(&canonical.as_str()) {
+        if PERMANENT_DENY.contains(&id.as_str())
+            || PERMANENT_DENY.contains(&canonical.as_str())
+            || SHELL_COMPONENTS.contains(&id.as_str())
+            || SHELL_COMPONENTS.contains(&canonical.as_str())
+        {
             return CapturePolicy::Ignore;
         }
         if AUTO_DENY_HINTS.iter().any(|h| id.contains(h)) {
@@ -235,17 +302,24 @@ impl Policies {
         let canonical = canonical_id(&id);
         PERMANENT_DENY.contains(&id.as_str())
             || PERMANENT_DENY.contains(&canonical.as_str())
+            || SHELL_COMPONENTS.contains(&id.as_str())
+            || SHELL_COMPONENTS.contains(&canonical.as_str())
             || AUTO_DENY_HINTS.iter().any(|h| id.contains(h))
             || lookup(&id).is_some_and(|k| k.default_policy == CapturePolicy::Ignore)
     }
 
     pub fn entry(&self, app_id: &str) -> AppEntry {
+        let id = app_id.to_ascii_lowercase();
         AppEntry {
-            app_id: app_id.to_ascii_lowercase(),
             display_name: display_name(app_id),
             category: category_of(app_id),
             policy: self.policy_for(app_id),
             auto_denied: self.is_auto_denied(app_id),
+            configured: self.overrides.contains_key(&id)
+                || self.overrides.contains_key(&canonical_id(&id)),
+            installed: false,
+            aliases: Vec::new(),
+            app_id: id,
         }
     }
 }
@@ -305,7 +379,88 @@ pub fn category_of(app_id: &str) -> Category {
 
 /// Every app the catalogue knows about, for the settings list.
 pub fn catalogue(policies: &Policies) -> Vec<AppEntry> {
-    let mut out: Vec<AppEntry> = CATALOGUE.iter().map(|k| policies.entry(k.id)).collect();
+    sort(CATALOGUE.iter().map(|k| policies.entry(k.id)).collect())
+}
+
+/// The Sources list for one machine: what is installed, plus anything the user
+/// has already made a decision about.
+///
+/// An app the catalogue has never heard of still gets a row, because the
+/// alternative is that the only way to switch off a capture is to wait for
+/// Chronicle to record it first. A catalogue entry that is *not* installed is
+/// left out — it is Chronicle's opinion about software the user does not have,
+/// and it buries the row they actually came here for.
+///
+/// Two exceptions stay whatever the machine looks like: an app the user has
+/// already configured, which they would otherwise watch silently vanish, and
+/// the hard-denied lists, since "is a password manager excluded?" deserves an
+/// answer that does not depend on having one installed.
+pub fn sources(policies: &Policies, discovered: &[Discovered]) -> Vec<AppEntry> {
+    use std::collections::BTreeMap;
+    let mut rows: BTreeMap<String, AppEntry> = BTreeMap::new();
+
+    for d in discovered {
+        let id = d.app_id.to_ascii_lowercase();
+        // Keyed by canonical id, so WhatsApp does not appear twice because it
+        // ships as `whatsapp.root.exe` and the deny list knows it as
+        // `whatsapp.exe`. They are one application and one setting.
+        let key = canonical_id(&id);
+        let mut e = policies.entry(&id);
+        e.installed = true;
+        // The catalogue's name wins when it has one: "Visual Studio Code"
+        // rather than whatever the installer felt like registering.
+        if lookup(&id).is_none() {
+            if let Some(name) = &d.display_name {
+                e.display_name = name.clone();
+            }
+        }
+        rows.insert(key, e);
+    }
+
+    for k in CATALOGUE {
+        if rows.contains_key(&canonical_id(k.id)) {
+            continue;
+        }
+        let e = policies.entry(k.id);
+        if e.configured || PERMANENT_DENY.contains(&k.id) || SHELL_COMPONENTS.contains(&k.id) {
+            rows.insert(k.id.to_string(), e);
+        }
+    }
+
+    sort(rows.into_values().collect())
+}
+
+/// Collapse rows that are the same application under two executable names, and
+/// order them for a settings list.
+fn sort(out: Vec<AppEntry>) -> Vec<AppEntry> {
+    use std::collections::BTreeMap;
+    let mut merged: BTreeMap<(String, String), AppEntry> = BTreeMap::new();
+
+    for e in out {
+        let key = (e.category.as_str().to_string(), e.display_name.clone());
+        match merged.get_mut(&key) {
+            None => {
+                merged.insert(key, e);
+            }
+            Some(kept) => {
+                // Keep whichever row the machine actually has, so the setting
+                // is written against the executable that really runs.
+                if e.installed && !kept.installed {
+                    let mut taken = e;
+                    taken.aliases.push(kept.app_id.clone());
+                    taken.aliases.append(&mut kept.aliases);
+                    taken.configured |= kept.configured;
+                    *kept = taken;
+                } else {
+                    kept.installed |= e.installed;
+                    kept.configured |= e.configured;
+                    kept.aliases.push(e.app_id);
+                }
+            }
+        }
+    }
+
+    let mut out: Vec<AppEntry> = merged.into_values().collect();
     out.sort_by(|a, b| {
         a.category
             .as_str()
@@ -318,6 +473,44 @@ pub fn catalogue(policies: &Policies) -> Vec<AppEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_input_host_cannot_be_re_enabled() {
+        // textinputhost.exe is the touch keyboard and the IME candidate window.
+        // Its title can be the text being typed, so no setting may turn it on.
+        let mut p = Policies::new();
+        p.set("textinputhost.exe", CapturePolicy::Full);
+        assert_eq!(p.policy_for("textinputhost.exe"), CapturePolicy::Ignore);
+    }
+
+    #[test]
+    fn shell_components_are_not_a_user_choice() {
+        let mut p = Policies::new();
+        for id in ["applicationframehost.exe", "searchhost.exe", "shellexperiencehost.exe", "sihost.exe"] {
+            p.set(id, CapturePolicy::Full);
+            assert_eq!(p.policy_for(id), CapturePolicy::Ignore, "{id} was re-enabled");
+            assert!(p.is_auto_denied(id));
+        }
+    }
+
+    #[test]
+    fn the_rebuilt_outlook_is_off_by_default_like_the_old_one() {
+        // Mail shipping under a new executable name walked straight past a
+        // deny list keyed on the old one.
+        let p = Policies::new();
+        assert_eq!(p.policy_for("olk.exe"), CapturePolicy::Ignore);
+        assert_eq!(display_name("olk.exe"), "Outlook");
+    }
+
+    #[test]
+    fn a_messaging_app_stays_a_user_choice() {
+        // Off by default, but the user may switch it on — unlike the two lists
+        // above, which are not offered as a choice at all.
+        let mut p = Policies::new();
+        assert_eq!(p.policy_for("whatsapp.root.exe"), CapturePolicy::Ignore);
+        p.set("whatsapp.exe", CapturePolicy::Full);
+        assert_eq!(p.policy_for("whatsapp.root.exe"), CapturePolicy::Full);
+    }
 
     #[test]
     fn password_managers_cannot_be_re_enabled() {

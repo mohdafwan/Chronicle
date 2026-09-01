@@ -344,21 +344,48 @@ function showReceipt(r) {
 
 // ── sources ───────────────────────────────────────────────────────────
 
+// Sources lists the apps that are on this machine, not Chronicle's whole
+// catalogue. A settings screen full of software the user does not have buries
+// the one row they came to change.
+let sourcesShowAll = false;
+
 async function openSources() {
-  const list = await invoke("list_sources");
+  const list = await invoke("list_sources", { all: sourcesShowAll });
   const body = $("sourcesBody");
   body.replaceChildren();
 
+  $("sourcesAll").textContent = sourcesShowAll
+    ? "Show installed only"
+    : "Show all known apps";
+  const installedCount = list.filter((s) => s.installed).length;
+  $("sourcesNote").textContent = sourcesShowAll
+    ? "Everything Chronicle recognises, installed here or not."
+    : `${installedCount} apps on this machine. Password managers and sign-in prompts can never be enabled.`;
+
+  // Installed first, grouped by category. The rest are the hard-denied rules
+  // for software that is not here — worth being able to see, not worth putting
+  // between the user and the app they opened this panel to change.
+  const here = list.filter((s) => s.installed);
+  const elsewhere = list.filter((s) => !s.installed);
+
   let lastCat = null;
-  for (const s of list) {
-    if (s.categoryLabel !== lastCat) {
-      body.append(el("div", "seghead", s.categoryLabel));
-      lastCat = s.categoryLabel;
+  for (const s of here.concat(elsewhere)) {
+    const heading = s.installed ? s.categoryLabel : "Not installed here";
+    if (heading !== lastCat) {
+      body.append(el("div", "seghead", heading));
+      lastCat = heading;
     }
     const row = el("div", "togrow");
     const name = el("div", "name");
     name.append(el("b", null, s.displayName));
-    if (s.autoDenied) name.append(el("span", null, "denied by a shipped rule"));
+    if (s.autoDenied && s.policy === "ignore") {
+      name.append(el("span", null, "never recorded, whatever this says"));
+    } else if (s.autoDenied && s.configured) {
+      name.append(el("span", null, "you turned this on; the default is off"));
+    } else if (s.autoDenied) {
+      name.append(el("span", null, "off by default"));
+    }
+
     row.append(name);
 
     const seg = el("div", "seg");
@@ -367,7 +394,11 @@ async function openSources() {
       b.type = "button";
       if (s.policy === value) b.className = value === "ignore" ? "off" : "on";
       b.addEventListener("click", async () => {
-        await invoke("set_source_policy", { appId: s.appId, policy: value });
+        await invoke("set_source_policy", {
+          appId: s.appId,
+          policy: value,
+          aliases: s.aliases ?? [],
+        });
         openSources();
       });
       seg.append(b);
@@ -377,6 +408,11 @@ async function openSources() {
   }
   openScrim("sourcesScrim");
 }
+
+$("sourcesAll").addEventListener("click", () => {
+  sourcesShowAll = !sourcesShowAll;
+  openSources();
+});
 
 // ── scrims ────────────────────────────────────────────────────────────
 
