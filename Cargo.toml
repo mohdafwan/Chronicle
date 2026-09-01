@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/core",
+    "crates/observer",
+    "crates/restore",
+    "crates/daemon",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Chronicle"]
+
+[workspace.dependencies]
+chronicle-core = { path = "crates/core" }
+chronicle-observer = { path = "crates/observer" }
+chronicle-restore = { path = "crates/restore" }
+
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.37", features = ["bundled", "chrono", "serde_json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "0.9"
+regex = "1"
+directories = "6"
+ctrlc = "3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

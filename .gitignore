@@ -1,0 +1,8 @@
+/target
+/.shot.png
+*.db
+*.db-wal
+*.db-shm
+
+/.daemon.log
+/.daemon.out

@@ -1,0 +1,961 @@
+<title>Chronicle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* tokens */
+:root{
+  --paper:#F4F4F0; --surface:#FFFFFF; --surface-2:#EDEDE7; --sunk:#E8E8E1;
+  --line:#DADBD3; --line-soft:#E7E8E0;
+  --ink:#171D1C; --ink-2:#3D4746; --muted:#6D7975; --faint:#949E9A;
+  --petrol:#0B5A66; --petrol-2:#0E7182; --petrol-wash:#E2EEF0;
+  --brass:#B87A22; --brass-ink:#1E1405; --brass-wash:#F4E8D2;
+  --violet:#6B4C86; --rose:#95425F; --olive:#5B6B2E; --graphite:#3F4A48;
+  --good:#2C6A4E; --warn:#94620E; --crit:#9C3524;
+  --tile-fg:#FFFFFF; --glyph-hand:rgba(255,255,255,.78);
+  --shadow:0 1px 2px rgba(23,29,28,.06), 0 8px 28px -12px rgba(23,29,28,.22);
+  --shadow-lg:0 2px 4px rgba(23,29,28,.05), 0 30px 70px -30px rgba(23,29,28,.40);
+  --r:10px;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1316; --surface:#161D20; --surface-2:#1D262A; --sunk:#121A1D;
+    --line:#2A3539; --line-soft:#212B2F;
+    --ink:#E7EBE9; --ink-2:#C2CBC8; --muted:#8B9895; --faint:#6B7876;
+    --petrol:#5FB2C0; --petrol-2:#7FC8D4; --petrol-wash:#0F3138;
+    --brass:#D9A14A; --brass-ink:#160F04; --brass-wash:#332512;
+    --violet:#AE92C7; --rose:#D2879C; --olive:#9BAB63; --graphite:#9AA6A3;
+    --good:#5FBB8C; --warn:#D9A94E; --crit:#E0725C;
+    --tile-fg:#0E1316; --glyph-hand:rgba(14,19,22,.62);
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 28px -12px rgba(0,0,0,.7);
+    --shadow-lg:0 2px 4px rgba(0,0,0,.45), 0 30px 70px -30px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1316; --surface:#161D20; --surface-2:#1D262A; --sunk:#121A1D;
+  --line:#2A3539; --line-soft:#212B2F;
+  --ink:#E7EBE9; --ink-2:#C2CBC8; --muted:#8B9895; --faint:#6B7876;
+  --petrol:#5FB2C0; --petrol-2:#7FC8D4; --petrol-wash:#0F3138;
+  --brass:#D9A14A; --brass-ink:#160F04; --brass-wash:#332512;
+  --violet:#AE92C7; --rose:#D2879C; --olive:#9BAB63; --graphite:#9AA6A3;
+  --good:#5FBB8C; --warn:#D9A94E; --crit:#E0725C;
+  --tile-fg:#0E1316; --glyph-hand:rgba(14,19,22,.62);
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 28px -12px rgba(0,0,0,.7);
+  --shadow-lg:0 2px 4px rgba(0,0,0,.45), 0 30px 70px -30px rgba(0,0,0,.9);
+}
+
+/* base */
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Archivo","Helvetica Neue",Arial,sans-serif;
+  font-size:16px; line-height:1.6; margin:0;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--petrol); text-underline-offset:2px}
+:focus-visible{outline:2px solid var(--petrol-2); outline-offset:3px; border-radius:4px}
+h1,h2,h3{font-family:"Fraunces",Georgia,serif; text-wrap:balance; margin:0; font-weight:600}
+strong,b{font-weight:600}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+p{margin:0; max-width:68ch}
+
+/* page frame */
+.wrap{max-width:1080px; margin:0 auto; padding:0 28px}
+.narrow{max-width:700px}
+section{padding:78px 0; border-top:1px solid var(--line-soft)}
+main section:first-of-type{border-top:0}
+.stack{display:flex; flex-direction:column; gap:24px}
+.stack-s{display:flex; flex-direction:column; gap:13px}
+.stack-xs{display:flex; flex-direction:column; gap:7px}
+
+.topbar{
+  position:sticky; top:0; z-index:50;
+  background:color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter:saturate(1.4) blur(14px);
+  border-bottom:1px solid var(--line-soft);
+}
+.topbar .wrap{display:flex; align-items:center; gap:20px; height:52px}
+.mark{display:flex; align-items:center; gap:9px; font-weight:600; letter-spacing:-.01em; font-size:15px}
+.glyph{width:20px; height:20px; border-radius:26%; flex:none; background:var(--petrol); position:relative}
+.glyph::after{content:""; position:absolute; left:47%; top:22%; width:8%; height:33%; background:var(--brass); transform-origin:bottom center; transform:rotate(42deg); border-radius:2px}
+.glyph::before{content:""; position:absolute; left:47%; top:32%; width:8%; height:23%; background:var(--glyph-hand); transform-origin:bottom center; transform:rotate(-72deg); border-radius:2px}
+.navlinks{margin-left:auto; display:flex; gap:19px; flex-wrap:wrap}
+.navlinks a{font-size:13px; color:var(--muted); text-decoration:none}
+.navlinks a:hover{color:var(--ink)}
+@media (max-width:880px){.navlinks{display:none}}
+
+/* type */
+.eyebrow{font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:500; letter-spacing:.16em; text-transform:uppercase; color:var(--brass)}
+.eyebrow.p{color:var(--petrol)}
+h1{font-size:clamp(50px,8.6vw,88px); line-height:.94; letter-spacing:-.03em; font-variation-settings:"opsz" 144,"WONK" 1}
+h2{font-size:clamp(27px,3.8vw,37px); line-height:1.12; letter-spacing:-.02em; font-variation-settings:"opsz" 72}
+h3{font-size:19px; line-height:1.32; letter-spacing:-.01em; font-variation-settings:"opsz" 24}
+h4{font-family:"Archivo",sans-serif; font-size:12px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin:0}
+.lede{font-size:19px; line-height:1.55; color:var(--ink-2); max-width:62ch}
+.lede-lg{font-size:22px; line-height:1.48; color:var(--ink-2); max-width:56ch}
+.dim{color:var(--muted)}
+.sm{font-size:14px; line-height:1.55}
+.xs{font-size:12.5px; line-height:1.5; color:var(--muted)}
+
+/* bits */
+.kbd{font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:500; padding:2px 6px; border-radius:5px; background:var(--surface-2); border:1px solid var(--line); color:var(--ink-2); white-space:nowrap}
+.pill{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:999px; background:var(--surface-2); color:var(--muted); border:1px solid var(--line)}
+.pill.warn{background:var(--brass-wash); color:var(--warn); border-color:transparent}
+.pill.good{background:color-mix(in srgb, var(--good) 15%, transparent); color:var(--good); border-color:transparent}
+.pill.crit{background:color-mix(in srgb, var(--crit) 15%, transparent); color:var(--crit); border-color:transparent}
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:22px; display:flex; flex-direction:column; gap:9px}
+.grid2{display:grid; grid-template-columns:repeat(2,1fr); gap:16px}
+.grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
+@media (max-width:780px){.grid2,.grid3{grid-template-columns:1fr}}
+.note{border-left:2px solid var(--brass); padding:3px 0 3px 16px; color:var(--ink-2); font-size:15px; line-height:1.55; max-width:64ch}
+.note b{color:var(--ink)}
+.caption{font-size:12.5px; color:var(--muted); max-width:66ch}
+
+/* tables */
+.tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:var(--r); background:var(--surface)}
+table{border-collapse:collapse; width:100%; min-width:680px; font-size:13.5px}
+th{text-align:left; font-weight:600; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); padding:11px 16px; border-bottom:1px solid var(--line); background:var(--sunk); white-space:nowrap}
+td{padding:12px 16px; border-bottom:1px solid var(--line-soft); vertical-align:top; line-height:1.45}
+tr:last-child td{border-bottom:0}
+td .mono{font-size:12px; color:var(--ink-2)}
+td.neg{color:var(--muted)}
+
+/* numbered sequence */
+.steps{display:flex; flex-direction:column}
+.step{display:grid; grid-template-columns:46px 1fr; gap:18px; padding:19px 0; border-top:1px solid var(--line-soft)}
+.step:first-child{border-top:0; padding-top:0}
+.step .n{font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:500; color:var(--brass); padding-top:4px}
+.step h3{margin-bottom:5px}
+.step p{font-size:14.5px; color:var(--ink-2)}
+
+/* app mockup */
+.winwrap{overflow-x:auto; padding:2px 0 8px}
+.win{min-width:920px; background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow-lg); overflow:hidden; font-size:13px}
+.titlebar{display:flex; align-items:center; gap:12px; height:38px; padding:0 14px; background:var(--sunk); border-bottom:1px solid var(--line)}
+.dots{display:flex; gap:7px}
+.dots i{width:11px; height:11px; border-radius:50%; background:var(--line); display:block}
+.wintitle{font-weight:600; font-size:12.5px}
+.winmeta{margin-left:auto; display:flex; align-items:center; gap:7px; font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--muted)}
+.rec{width:7px; height:7px; border-radius:50%; background:var(--good); flex:none}
+.winbody{display:grid; grid-template-columns:306px 1fr}
+.pane-l{border-right:1px solid var(--line); background:var(--sunk); display:flex; flex-direction:column}
+.searchbox{margin:12px; display:flex; align-items:center; gap:9px; height:32px; padding:0 10px; background:var(--surface); border:1px solid var(--line); border-radius:7px; color:var(--faint); font-size:12.5px; flex:none}
+.searchbox .kbd{margin-left:auto; font-size:10px; padding:1px 5px}
+.sesslist{padding:0 8px 14px}
+.dayhead{font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); padding:14px 8px 7px}
+.srow{padding:9px 10px; border-radius:8px; border:1px solid transparent; display:flex; flex-direction:column; gap:5px}
+.srow.on{background:var(--surface); border-color:var(--line); box-shadow:var(--shadow)}
+.srow .st{font-weight:600; font-size:13px; display:flex; align-items:center; gap:7px; letter-spacing:-.005em}
+.srow .sm2{font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums}
+.tiles{display:flex; gap:4px; margin-top:2px}
+.tile{width:17px; height:17px; border-radius:4.5px; display:grid; place-items:center; font-family:"IBM Plex Mono",monospace; font-size:8px; font-weight:600; color:var(--tile-fg); letter-spacing:-.03em}
+.t-code{background:var(--petrol)} .t-web{background:var(--violet)} .t-des{background:var(--rose)}
+.t-term{background:var(--graphite)} .t-doc{background:var(--brass)} .t-dir{background:var(--olive)}
+.pane-r{display:flex; flex-direction:column; background:var(--surface)}
+.dhead{padding:22px 26px 15px; border-bottom:1px solid var(--line-soft)}
+.dhead h3{font-size:23px; font-variation-settings:"opsz" 40; letter-spacing:-.015em}
+.dsub{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--muted); margin-top:7px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-variant-numeric:tabular-nums}
+.dsub .sep{color:var(--line)}
+.tl{margin:16px 26px 0}
+.tlbar{display:flex; height:22px; border-radius:5px; overflow:hidden; gap:1.5px; background:var(--line-soft)}
+.tlbar span{display:block}
+.tlrule{display:flex; justify-content:space-between; margin-top:5px; font-family:"IBM Plex Mono",monospace; font-size:9.5px; color:var(--faint); font-variant-numeric:tabular-nums}
+.tllegend{display:flex; gap:15px; flex-wrap:wrap; margin-top:10px; font-size:10.5px; color:var(--muted)}
+.tllegend i{width:8px; height:8px; border-radius:2px; display:inline-block; margin-right:5px}
+.ctx{padding:18px 26px 22px; display:flex; flex-direction:column; gap:15px; flex:1}
+.grp{display:flex; flex-direction:column; gap:6px}
+.grphead{display:flex; align-items:center; gap:9px; font-size:10px; font-weight:600; letter-spacing:.13em; text-transform:uppercase; color:var(--faint)}
+.grphead::after{content:""; height:1px; background:var(--line-soft); flex:1}
+.item{display:flex; align-items:flex-start; gap:11px; padding:4px 0}
+.ico{width:26px; height:26px; border-radius:6.5px; flex:none; display:grid; place-items:center; font-family:"IBM Plex Mono",monospace; font-size:9.5px; font-weight:600; color:var(--tile-fg); margin-top:1px}
+.itxt{display:flex; flex-direction:column; gap:1px; min-width:0; flex:1}
+.itxt b{font-size:13px}
+.itxt .path{font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--petrol); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.itxt .meta{font-size:11.5px; color:var(--muted); line-height:1.4}
+.fid{flex:none; font-family:"IBM Plex Mono",monospace; font-size:9.5px; font-weight:500; letter-spacing:.06em; text-transform:uppercase; padding:2px 7px; border-radius:4px; margin-top:5px; white-space:nowrap; background:var(--surface-2); color:var(--muted)}
+.f-exact{background:var(--petrol-wash); color:var(--petrol)}
+.f-att{background:var(--brass-wash); color:var(--warn)}
+.actionbar{display:flex; align-items:center; gap:11px; padding:14px 26px; border-top:1px solid var(--line); background:var(--sunk); flex-wrap:wrap}
+.abmeta{font-size:12px; color:var(--muted); margin-right:auto}
+.btn{font-family:inherit; font-size:13px; font-weight:600; border-radius:8px; padding:8px 15px; border:1px solid var(--line); background:var(--surface); color:var(--ink); display:inline-flex; align-items:center; gap:9px; white-space:nowrap}
+.btn.primary{background:var(--brass); border-color:transparent; color:var(--brass-ink)}
+.btn.primary .kbd{background:rgba(0,0,0,.14); border-color:transparent; color:var(--brass-ink)}
+
+/* small mockups */
+.mini{background:var(--surface); border:1px solid var(--line); border-radius:11px; box-shadow:var(--shadow); overflow:hidden; font-size:13px}
+.mini-h{padding:10px 15px; border-bottom:1px solid var(--line-soft); display:flex; align-items:center; gap:9px; font-size:10.5px; font-family:"IBM Plex Mono",monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--faint)}
+.mini-b{padding:15px; display:flex; flex-direction:column; gap:11px}
+.qline{display:flex; align-items:center; gap:11px; padding:14px 16px; border-bottom:1px solid var(--line-soft); font-family:"Fraunces",Georgia,serif; font-size:17px; font-variation-settings:"opsz" 24}
+.caret{width:1.5px; height:18px; background:var(--brass); display:block}
+.said{font-size:15px; line-height:1.55; color:var(--ink)}
+.said em{color:var(--petrol); font-style:normal; font-weight:600}
+.hitrow{display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:8px; background:var(--sunk); border:1px solid var(--line-soft)}
+.hitrow.on{background:var(--petrol-wash); border-color:transparent}
+.notif{background:var(--surface); border:1px solid var(--line); border-radius:13px; box-shadow:var(--shadow-lg); padding:15px; display:flex; gap:12px}
+.rline{display:flex; align-items:center; gap:11px; padding:9px 16px; border-bottom:1px solid var(--line-soft); font-size:12.5px}
+.rline:last-child{border-bottom:0}
+.rline .mono{font-size:11px; color:var(--muted); margin-left:auto; font-variant-numeric:tabular-nums; white-space:nowrap}
+.tick{width:15px; height:15px; border-radius:50%; display:grid; place-items:center; font-size:9px; flex:none; color:var(--tile-fg); font-weight:700}
+.tick.ok{background:var(--good)} .tick.no{background:var(--warn)}
+.togrow{display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line-soft)}
+.togrow:last-child{border-bottom:0}
+.seg{display:flex; margin-left:auto; border:1px solid var(--line); border-radius:7px; overflow:hidden; flex:none}
+.seg span{padding:4px 10px; font-size:11px; font-weight:500; color:var(--muted); border-right:1px solid var(--line)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--petrol); color:var(--tile-fg); font-weight:600}
+.seg span.off{background:var(--crit); color:var(--tile-fg); font-weight:600}
+
+pre{margin:0; padding:16px 18px; background:var(--sunk); border:1px solid var(--line); border-radius:var(--r); overflow-x:auto; font-family:"IBM Plex Mono",monospace; font-size:12.5px; line-height:1.65; color:var(--ink-2)}
+pre .k{color:var(--petrol)} pre .s{color:var(--brass)} pre .c{color:var(--faint)}
+.keycap{display:flex; align-items:baseline; gap:14px; padding:8px 0; border-bottom:1px solid var(--line-soft)}
+.keycap:last-child{border-bottom:0}
+.keycap .kk{flex:none; width:96px; display:flex; gap:4px}
+.keycap .d{font-size:13.5px; color:var(--ink-2)}
+footer{padding:56px 0 76px; border-top:1px solid var(--line-soft)}
+</style>
+
+<header class="topbar">
+  <div class="wrap">
+    <span class="mark"><span class="glyph"></span>Chronicle</span>
+    <nav class="navlinks">
+      <a href="#window">The window</a>
+      <a href="#sessions">Sessions</a>
+      <a href="#capture">What it sees</a>
+      <a href="#restore">Restore</a>
+      <a href="#ask">Ask</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#build">Architecture</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- HERO -->
+<section style="padding-top:64px">
+  <div class="wrap stack">
+    <p class="eyebrow">Chronicle &middot; a desktop utility for macOS and Windows</p>
+    <h1>Where&nbsp;was&nbsp;I?</h1>
+    <p class="lede-lg">Chronicle watches your workspace the way a flight recorder watches a cockpit &mdash; quietly, locally, and only so it can put everything back. Come back after a crash, a meeting, or a weekend, and one key returns you to the desk you left.</p>
+    <div style="display:flex; gap:9px; flex-wrap:wrap; padding-top:2px">
+      <span class="pill">Local-first</span>
+      <span class="pill">No account</span>
+      <span class="pill">Native, not Electron</span>
+      <span class="pill">Under 60&nbsp;MB resident</span>
+    </div>
+  </div>
+</section>
+
+<!-- MAIN WINDOW -->
+<section id="window" style="padding-top:8px; border-top:0">
+  <div class="wrap stack">
+    <div class="winwrap">
+      <div class="win">
+        <div class="titlebar">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="wintitle">Chronicle</span>
+          <span class="winmeta"><span class="rec"></span> Recording &middot; 6 sources &middot; 41 days kept</span>
+        </div>
+        <div class="winbody">
+
+          <aside class="pane-l">
+            <div class="searchbox"><span>&#9906;</span><span>Ask Chronicle</span><span class="kbd">&#8984;K</span></div>
+            <div class="sesslist">
+              <div class="dayhead">Yesterday &middot; Fri 29 Aug</div>
+              <div class="srow on">
+                <span class="st">Building the Android App <span class="pill crit" style="font-size:9.5px; padding:1px 7px">Interrupted</span></span>
+                <span class="sm2">2:15 PM &ndash; 6:40 PM &middot; 4h 25m</span>
+                <span class="tiles">
+                  <span class="tile t-code">VS</span><span class="tile t-code">AS</span><span class="tile t-web">Ch</span>
+                  <span class="tile t-des">Fi</span><span class="tile t-term">&gt;_</span><span class="tile t-doc">PD</span>
+                </span>
+              </div>
+              <div class="srow">
+                <span class="st">Invoices &amp; inbox</span>
+                <span class="sm2">9:02 AM &ndash; 10:38 AM &middot; 1h 36m</span>
+                <span class="tiles"><span class="tile t-web">Ch</span><span class="tile t-doc">PD</span><span class="tile t-dir">Fi</span></span>
+              </div>
+              <div class="dayhead">Thursday &middot; 28 Aug</div>
+              <div class="srow">
+                <span class="st">Client website &mdash; Northbeam</span>
+                <span class="sm2">10:12 AM &ndash; 5:58 PM &middot; 6h 04m</span>
+                <span class="tiles"><span class="tile t-code">VS</span><span class="tile t-web">Ch</span><span class="tile t-des">Fi</span><span class="tile t-term">&gt;_</span></span>
+              </div>
+              <div class="dayhead">Wednesday &middot; 27 Aug</div>
+              <div class="srow">
+                <span class="st">Research &mdash; on-device inference</span>
+                <span class="sm2">1:30 PM &ndash; 4:05 PM &middot; 2h 35m</span>
+                <span class="tiles"><span class="tile t-web">Ch</span><span class="tile t-doc">PD</span><span class="tile t-code">VS</span></span>
+              </div>
+              <div class="srow">
+                <span class="st">Personal &mdash; darkroom scans</span>
+                <span class="sm2">8:40 PM &ndash; 11:12 PM &middot; 2h 32m</span>
+                <span class="tiles"><span class="tile t-dir">Fi</span><span class="tile t-des">Ps</span><span class="tile t-web">Ch</span></span>
+              </div>
+            </div>
+          </aside>
+
+          <div class="pane-r">
+            <div class="dhead">
+              <h3>Building the Android App</h3>
+              <div class="dsub">
+                <span>Yesterday, Fri 29 Aug</span><span class="sep">|</span>
+                <span>2:15 PM &ndash; 6:40 PM</span><span class="sep">|</span>
+                <span>4h 25m active</span><span class="sep">|</span>
+                <span style="color:var(--crit)">ended by system restart, 6:41 PM</span>
+              </div>
+            </div>
+
+            <div class="tl">
+              <div class="tlbar">
+                <span style="flex:14; background:var(--petrol)"></span>
+                <span style="flex:8; background:var(--violet)"></span>
+                <span style="flex:11; background:var(--petrol)"></span>
+                <span style="flex:6; background:var(--rose)"></span>
+                <span style="flex:4; background:var(--graphite)"></span>
+                <span style="flex:13; background:var(--petrol)"></span>
+                <span style="flex:5; background:var(--brass)"></span>
+                <span style="flex:9; background:var(--violet)"></span>
+                <span style="flex:16; background:var(--petrol)"></span>
+                <span style="flex:5; background:var(--graphite)"></span>
+              </div>
+              <div class="tlrule"><span>2:15 PM</span><span>3:00</span><span>4:00</span><span>5:00</span><span>6:00</span><span>6:40 PM</span></div>
+              <div class="tllegend">
+                <span><i style="background:var(--petrol)"></i>Editors</span>
+                <span><i style="background:var(--violet)"></i>Browser</span>
+                <span><i style="background:var(--rose)"></i>Design</span>
+                <span><i style="background:var(--graphite)"></i>Terminal</span>
+                <span><i style="background:var(--brass)"></i>Documents</span>
+              </div>
+            </div>
+
+            <div class="ctx">
+              <div class="grp">
+                <div class="grphead">Editors</div>
+                <div class="item">
+                  <span class="ico t-code">VS</span>
+                  <span class="itxt">
+                    <b>Visual Studio Code</b>
+                    <span class="path">~/work/spotted-android</span>
+                    <span class="meta">branch <b>feature/login-otp</b> &middot; 6 files open &middot; caret in LoginViewModel.kt:214</span>
+                  </span>
+                  <span class="fid f-exact">Exact</span>
+                </div>
+                <div class="item">
+                  <span class="ico t-code">AS</span>
+                  <span class="itxt">
+                    <b>Android Studio</b>
+                    <span class="path">~/work/spotted-android</span>
+                    <span class="meta">run config <b>app &middot; Pixel 8 API 35</b> &middot; Logcat filter <span class="mono">tag:AuthFlow</span></span>
+                  </span>
+                  <span class="fid f-exact">Exact</span>
+                </div>
+              </div>
+
+              <div class="grp">
+                <div class="grphead">Browser &mdash; 7 tabs in one window</div>
+                <div class="item">
+                  <span class="ico t-web">Ch</span>
+                  <span class="itxt">
+                    <b>Chrome &mdash; window &ldquo;Auth&rdquo;</b>
+                    <span class="meta">developer.android.com &middot; Credential Manager &mdash; sign in with passkeys</span>
+                    <span class="meta">firebase.google.com &middot; Phone auth on Android</span>
+                    <span class="meta">stackoverflow.com &middot; OTP autofill not firing on API 34</span>
+                    <span class="meta">console.firebase.google.com &middot; spotted-prod &rarr; Authentication</span>
+                    <span class="meta dim">+ 3 more, including 1 pinned</span>
+                  </span>
+                  <span class="fid f-exact">Exact</span>
+                </div>
+              </div>
+
+              <div class="grp">
+                <div class="grphead">Design</div>
+                <div class="item">
+                  <span class="ico t-des">Fi</span>
+                  <span class="itxt">
+                    <b>Figma</b>
+                    <span class="path">Spotted &mdash; Login &amp; OTP</span>
+                    <span class="meta">last frame viewed <b>OTP entry / error states</b></span>
+                  </span>
+                  <span class="fid">Deep link</span>
+                </div>
+              </div>
+
+              <div class="grp">
+                <div class="grphead">Terminal &mdash; 2 tabs</div>
+                <div class="item">
+                  <span class="ico t-term">&gt;_</span>
+                  <span class="itxt">
+                    <b>iTerm</b>
+                    <span class="path">~/work/spotted-android</span>
+                    <span class="meta">last command <span class="mono">./gradlew :app:installDebug</span> &middot; re-typed, never re-run</span>
+                  </span>
+                  <span class="fid">Deep link</span>
+                </div>
+                <div class="item">
+                  <span class="ico t-term">&gt;_</span>
+                  <span class="itxt">
+                    <b>iTerm</b>
+                    <span class="path">~/work/spotted-api</span>
+                    <span class="meta">last command <span class="mono">docker compose logs -f auth</span></span>
+                  </span>
+                  <span class="fid f-att">Needs Docker</span>
+                </div>
+              </div>
+
+              <div class="grp">
+                <div class="grphead">Documents &amp; folders</div>
+                <div class="item">
+                  <span class="ico t-doc">PD</span>
+                  <span class="itxt">
+                    <b>Preview</b>
+                    <span class="path">~/Documents/firebase-auth-android.pdf</span>
+                    <span class="meta">page 34 of 96</span>
+                  </span>
+                  <span class="fid">Deep link</span>
+                </div>
+                <div class="item">
+                  <span class="ico t-dir">Fi</span>
+                  <span class="itxt">
+                    <b>Finder</b>
+                    <span class="path">~/work/spotted-android/app/src/main/res</span>
+                    <span class="meta">column view, sorted by date modified</span>
+                  </span>
+                  <span class="fid">Open</span>
+                </div>
+                <div class="item">
+                  <span class="ico t-dir">Fi</span>
+                  <span class="itxt">
+                    <b>Finder</b>
+                    <span class="path">~/Downloads/otp-recording.mov</span>
+                    <span class="meta" style="color:var(--warn)">moved or deleted since the session &mdash; last seen 6:02 PM</span>
+                  </span>
+                  <span class="fid f-att">Missing</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="actionbar">
+              <span class="abmeta"><b style="color:var(--ink)">12 of 14</b> items ready &middot; 2 need you</span>
+              <span class="btn">Preview plan</span>
+              <span class="btn">Restore selected <span class="kbd">&#8679;&crarr;</span></span>
+              <span class="btn primary">Restore Workspace <span class="kbd">&crarr;</span></span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <p class="caption">The main window, and nearly the whole product. Left: sessions, newest first, named after the work rather than the apps. Right: the context of the selected session, grouped the way you would describe it out loud &mdash; and a fidelity badge on every row so the restore never over-promises.</p>
+  </div>
+</section>
+
+<!-- PRINCIPLES -->
+<section>
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow p">The shape of the thing</p>
+      <h2>One question, one button, and the honesty to say what it cannot put back</h2>
+    </div>
+    <div class="grid3">
+      <div class="card">
+        <h3>A session, not a log</h3>
+        <p class="sm dim">Chronicle never shows you a stream of events. Raw observations are an implementation detail; the unit you see, search, name, pin and restore is always a work session with a start, an end, and a subject.</p>
+      </div>
+      <div class="card">
+        <h3>Reconstruct, don&rsquo;t relaunch</h3>
+        <p class="sm dim">Opening five apps is not restoring a workspace. The editor comes back on the right branch with the right file, the browser as one window of the right tabs, the terminal already in the right directory. Anything less is a shortcut folder.</p>
+      </div>
+      <div class="card">
+        <h3>Local, or nothing</h3>
+        <p class="sm dim">Every observation stays in one encrypted file on the machine that made it. No account, no sync, no telemetry, no cloud fallback. If a feature would need a server, Chronicle does not ship it.</p>
+      </div>
+    </div>
+    <div class="note">
+      <b>The loop this serves:</b> work &rarr; Chronicle remembers &rarr; something interrupts &rarr; you come back &rarr; you see where you stopped &rarr; you restore &rarr; you keep working. Anything that does not shorten the gap between &ldquo;you come back&rdquo; and &ldquo;you keep working&rdquo; does not belong in the product.
+    </div>
+  </div>
+</section>
+
+<!-- SESSIONS -->
+<section id="sessions">
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow p">Sessions</p>
+      <h2>How a day of window switching becomes four things you recognise</h2>
+      <p class="lede">A session is a stretch of time where the same work was happening. Chronicle finds the edges from behaviour, not from a timer, and revises them as more of the day arrives.</p>
+    </div>
+
+    <div class="stack-s">
+      <h4>Boundary rules</h4>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Signal</th><th>Rule</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>Idle</td><td>No focus change, no input for <b>12 minutes</b></td><td>Soft boundary &mdash; closes the session if nothing resumes</td></tr>
+            <tr><td>Lock, sleep, log out</td><td>Any of them</td><td>Soft boundary, timestamped</td></tr>
+            <tr><td>Crash or forced restart</td><td>Daemon did not write a clean shutdown record</td><td>Hard boundary; session flagged <span class="pill crit" style="font-size:10px; padding:1px 7px">Interrupted</span> and surfaced first on next login</td></tr>
+            <tr><td>Context switch</td><td>Over <b>70%</b> of the focused window set turns over within 10 minutes, with no shared project root</td><td>Split into two sessions</td></tr>
+            <tr><td>Return to work</td><td>A previously dominant project root regains focus within <b>45 minutes</b></td><td>Stitch back &mdash; one session with a gap, not two sessions</td></tr>
+            <tr><td>Short noise</td><td>Session under 4 minutes, or fewer than 3 distinct artifacts</td><td>Discarded; a glance at Slack is not a session</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">Every threshold here is a default, and every one is editable in Settings &rarr; Sessions. People who work in 20-minute bursts and people who sit on one problem for six hours both need to recognise their own days in the list.</p>
+    </div>
+
+    <div class="grid2" style="align-items:start">
+      <div class="stack-s">
+        <h4>How a session gets its name</h4>
+        <p class="sm dim">Names come from structure, never from the contents of your documents. Chronicle takes the first of these that resolves, then keeps the name stable once you have seen it:</p>
+        <div class="stack-xs sm">
+          <div>1 &nbsp; The dominant repository or project root &mdash; <span class="mono" style="font-size:12px">spotted-android</span> &rarr; &ldquo;Building the Android App&rdquo;</div>
+          <div>2 &nbsp; The git branch, when one branch held most of the time &mdash; <span class="mono" style="font-size:12px">feature/login-otp</span> &rarr; &ldquo;Login &amp; OTP&rdquo;</div>
+          <div>3 &nbsp; The dominant design file or document title</div>
+          <div>4 &nbsp; The most-visited site&rsquo;s topic cluster &mdash; &ldquo;Research &mdash; on-device inference&rdquo;</div>
+          <div>5 &nbsp; Otherwise the app mix and time of day &mdash; &ldquo;Thursday morning &mdash; mixed&rdquo;</div>
+        </div>
+        <p class="caption">Rename any session with <span class="kbd">&#8984;R</span>. A renamed session is never re-titled automatically, and the name you chose becomes a search term.</p>
+      </div>
+      <div class="stack-s">
+        <h4>What a session holds</h4>
+        <pre><span class="c">// one row per session, everything else hangs off it</span>
+<span class="k">session</span>  id, title, title_source, started_at, ended_at,
+         active_seconds, end_reason, pinned, device_id
+
+<span class="k">artifact</span> id, kind, uri, app_bundle_id, display_name,
+         project_root, first_seen, last_seen, focus_seconds
+
+<span class="k">state</span>    artifact_id, key, value        <span class="c">// branch, page,
+                                         cwd, node-id, line</span>
+
+<span class="k">window</span>   artifact_id, display_uuid, frame, z_order, space
+
+<span class="k">restore</span>  id, session_id, ran_at, plan_json, outcome_json
+</pre>
+        <p class="caption">Artifacts are shared across sessions, so &ldquo;every session that touched this Figma file&rdquo; is one join, and deleting an artifact removes it everywhere at once.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CAPTURE -->
+<section id="capture">
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow p">What it sees</p>
+      <h2>Enough to put the desk back, and deliberately nothing more</h2>
+      <p class="lede">Chronicle records pointers, not contents. A path, a URL, a branch name, a page number, a window frame. It is the difference between a bookmark and a photocopy, and it is the whole privacy posture in one sentence.</p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th style="width:150px">Source</th><th>Recorded</th><th style="width:210px">Never recorded</th><th style="width:150px">When</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>Windows &amp; apps</b></td>
+            <td>Bundle id, window title, frame and display, z-order, space, focus timestamps</td>
+            <td class="neg">Window pixels, screenshots, keystrokes, mouse paths</td>
+            <td class="neg">On focus change, plus a 30&nbsp;s heartbeat</td>
+          </tr>
+          <tr>
+            <td><b>Editors</b><br><span class="xs">VS Code, Xcode, Android&nbsp;Studio, JetBrains, Sublime, Zed</span></td>
+            <td>Workspace or project path, open file list, active file and line, git branch and dirty flag, selected run config</td>
+            <td class="neg">File contents, diffs, terminal output inside the editor</td>
+            <td class="neg">On workspace or active-file change</td>
+          </tr>
+          <tr>
+            <td><b>Browsers</b><br><span class="xs">Chrome, Edge, Safari, Firefox, Arc</span></td>
+            <td>Window &rarr; tab grouping, URL, page title, pinned state, tab order</td>
+            <td class="neg">Page content, form fields, cookies, history beyond open tabs, and every private or incognito window without exception</td>
+            <td class="neg">On tab commit and window close</td>
+          </tr>
+          <tr>
+            <td><b>Terminals</b></td>
+            <td>Working directory per tab or pane, shell, tab title, last foreground command <span class="pill" style="font-size:10px; padding:1px 6px">opt-in</span></td>
+            <td class="neg">Scrollback, output, environment variables, any command matching a secret pattern</td>
+            <td class="neg">On directory change and on exit</td>
+          </tr>
+          <tr>
+            <td><b>Documents</b></td>
+            <td>File path, application, page or slide number, zoom</td>
+            <td class="neg">Document text, images, annotations</td>
+            <td class="neg">On open and on close</td>
+          </tr>
+          <tr>
+            <td><b>Design tools</b><br><span class="xs">Figma, Sketch, Photoshop</span></td>
+            <td>File key and name, last viewed page or frame, local file path</td>
+            <td class="neg">Canvas contents, layer names, exports</td>
+            <td class="neg">On document change</td>
+          </tr>
+          <tr>
+            <td><b>Folders</b></td>
+            <td>Finder or Explorer window paths, view mode, sort order</td>
+            <td class="neg">Directory listings, file previews</td>
+            <td class="neg">On window open and close</td>
+          </tr>
+          <tr>
+            <td><b>Messaging &amp; mail</b></td>
+            <td colspan="2"><b>Off by default, entirely.</b> If you turn it on, Chronicle stores a workspace or channel deep link and nothing else &mdash; never a sender, subject, or message.</td>
+            <td class="neg">&mdash;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid2" style="align-items:start">
+      <div class="card" style="border-color:var(--crit); border-width:1px">
+        <h3 style="color:var(--crit)">Never, under any setting</h3>
+        <p class="sm dim">Keystrokes and key logging. Clipboard contents. Screenshots or screen recording. Passwords, tokens, or anything typed into a secure field. Camera or microphone. Any window belonging to a password manager, a banking or health app, or a private browsing session. There is no preference that turns these on, because the code to capture them is not in the binary.</p>
+      </div>
+      <div class="stack-s">
+        <h3>Window titles are the sharp edge</h3>
+        <p class="sm dim">A title bar is the one field that leaks content &mdash; a document name, a patient record, an email subject. Chronicle treats it as sensitive by default:</p>
+        <div class="stack-xs sm">
+          <div>&middot; &nbsp;Titles are matched against secret patterns (keys, tokens, long hex) and dropped before they are written.</div>
+          <div>&middot; &nbsp;Apps can be set to <b>title-blind</b> &mdash; Chronicle stores that the app was open and for how long, and stores the title as the app name.</div>
+          <div>&middot; &nbsp;URLs are stripped of query strings unless the path alone would not identify the page, and always stripped of anything matching a token pattern.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RESTORE -->
+<section id="restore">
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow">The button</p>
+      <h2>Restore Workspace</h2>
+      <p class="lede">The operating system decides how much of a workspace can genuinely come back. Chronicle&rsquo;s job is to reach the highest fidelity each app allows, and to be plain about where it lands.</p>
+    </div>
+
+    <div class="stack-s">
+      <h4>The fidelity ladder</h4>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th style="width:130px">Level</th><th style="width:200px">What you get</th><th>How</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fid f-exact">Exact</span></td><td>The app reopens in the state it was left</td><td>Native workspace or session APIs &mdash; a VS Code workspace file, a JetBrains project, a browser tab set written through the Chronicle extension, an AppleScript-composed Safari window</td></tr>
+            <tr><td><span class="fid">Deep link</span></td><td>The app opens straight to the artifact</td><td><span class="mono">figma://file/&hellip;?node-id=</span>, <span class="mono">xed project.xcodeproj</span>, <span class="mono">slack://channel</span>, a terminal opened in the right directory</td></tr>
+            <tr><td><span class="fid">Open</span></td><td>The file opens in its default app; position is not recoverable</td><td>Plain <span class="mono">open</span> / <span class="mono">start</span> on the path</td></tr>
+            <tr><td><span class="fid f-att">Needs you</span></td><td>Chronicle cannot act alone</td><td>A card with the path, URL, or command and a copy button &mdash; a stopped Docker stack, a VPN, an app that is not installed on this machine</td></tr>
+            <tr><td><span class="fid f-att">Missing</span></td><td>The thing is gone</td><td>Last known path, when it was last seen, and a search of the current disk for a file with the same name</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">The badge on every row of the session detail is this ladder. You know before you press the button which twelve of fourteen things will land.</p>
+    </div>
+
+    <div class="stack-s">
+      <h4>What happens when you press it</h4>
+      <div class="steps">
+        <div class="step"><span class="n">01</span><div><h3>Plan</h3><p>Resolve every artifact against the current machine. Does the path still exist? Is the app installed? Is this display still attached? Deduplicate, decide a fidelity level per item, and group by application.</p></div></div>
+        <div class="step"><span class="n">02</span><div><h3>Confirm</h3><p>Show the plan with every item checked and nothing launched yet. Uncheck what you do not want. <span class="kbd">&crarr;</span> proceeds. Turn on <em>Restore without asking</em> and this step is skipped for sessions you have restored before.</p></div></div>
+        <div class="step"><span class="n">03</span><div><h3>Make room</h3><p>Optionally open a new Space or virtual desktop, so restoring yesterday never buries what you are doing right now. On by default when more than four windows are coming back.</p></div></div>
+        <div class="step"><span class="n">04</span><div><h3>Launch in order</h3><p>Editors and terminals first, because they are slowest to become ready; browsers last, because they steal focus. Each app gets a readiness handshake with a timeout, and a stalled app never blocks the rest of the plan.</p></div></div>
+        <div class="step"><span class="n">05</span><div><h3>Deepen</h3><p>Once an app reports ready, send it the state: open the workspace, jump to the file and line, compose the tab set into one window, <span class="mono">cd</span> the terminal. This is the step that separates Chronicle from a folder of aliases.</p></div></div>
+        <div class="step"><span class="n">06</span><div><h3>Place</h3><p>Restore window frames per display. If the display arrangement changed &mdash; the external monitor is not here today &mdash; remap proportionally onto what is attached, never off-screen.</p></div></div>
+        <div class="step"><span class="n">07</span><div><h3>Report, and offer to undo</h3><p>A receipt: what came back, at what fidelity, what did not and why. <b>Undo Restore</b> stays available for ten minutes and closes only the windows Chronicle opened.</p></div></div>
+      </div>
+    </div>
+
+    <div class="grid2" style="align-items:start; gap:22px">
+      <div class="stack-s">
+        <div class="mini receipt">
+          <div class="mini-h">Restore receipt &middot; 6.2 s</div>
+          <div class="rline"><span class="tick ok">&#10003;</span> VS Code &mdash; spotted-android, LoginViewModel.kt:214 <span class="mono">exact</span></div>
+          <div class="rline"><span class="tick ok">&#10003;</span> Android Studio &mdash; project + run config <span class="mono">exact</span></div>
+          <div class="rline"><span class="tick ok">&#10003;</span> Chrome &mdash; 7 tabs, one window <span class="mono">exact</span></div>
+          <div class="rline"><span class="tick ok">&#10003;</span> Figma &mdash; Login &amp; OTP, frame OTP entry <span class="mono">deep link</span></div>
+          <div class="rline"><span class="tick ok">&#10003;</span> iTerm &mdash; 2 tabs, commands typed not run <span class="mono">deep link</span></div>
+          <div class="rline"><span class="tick ok">&#10003;</span> Preview &mdash; firebase-auth-android.pdf, p.34 <span class="mono">deep link</span></div>
+          <div class="rline"><span class="tick no">!</span> Docker stack <span class="mono">not running</span></div>
+          <div class="rline"><span class="tick no">!</span> otp-recording.mov <span class="mono">file missing</span></div>
+          <div class="rline" style="background:var(--sunk); border-top:1px solid var(--line)">
+            <span class="btn" style="padding:5px 11px; font-size:12px">Undo Restore</span>
+            <span class="btn" style="padding:5px 11px; font-size:12px">Copy the two I need</span>
+            <span class="mono">expires in 9:41</span>
+          </div>
+        </div>
+        <p class="caption">Honesty is the feature. A restore that silently drops two items teaches you not to trust the button.</p>
+      </div>
+
+      <div class="stack-s">
+        <h4>Two rules that never bend</h4>
+        <div class="card">
+          <h3>Commands are typed, never run</h3>
+          <p class="sm dim">A terminal comes back in the right directory with the last command pre-typed at the prompt and the cursor at the end. Chronicle does not press Return for you. <span class="mono">rm -rf</span>, a deploy, a migration &mdash; the machine cannot tell which of yesterday&rsquo;s commands is safe to repeat, so it never guesses.</p>
+        </div>
+        <div class="card">
+          <h3>Restore is additive and reversible</h3>
+          <p class="sm dim">Chronicle never closes, moves, or replaces a window you already have open. It only adds, it tracks exactly what it added, and Undo removes precisely that set.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="stack-s">
+      <h4>Per-application adapters</h4>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th style="width:190px">Application</th><th style="width:120px">Best fidelity</th><th>Mechanism</th></tr></thead>
+          <tbody>
+            <tr><td>VS Code, Cursor, Zed</td><td><span class="fid f-exact">Exact</span></td><td><span class="mono">code &lt;folder&gt;</span> for the workspace, then <span class="mono">code -g &lt;file&gt;:&lt;line&gt;</span> for the caret</td></tr>
+            <tr><td>Xcode</td><td><span class="fid">Deep link</span></td><td><span class="mono">xed &lt;project&gt;</span>; scheme selection via saved <span class="mono">xcuserdata</span> when present</td></tr>
+            <tr><td>Android Studio, JetBrains IDEs</td><td><span class="fid f-exact">Exact</span></td><td>CLI launcher with the project path; run configuration named in <span class="mono">.idea/workspace.xml</span></td></tr>
+            <tr><td>Chrome, Edge, Brave, Arc</td><td><span class="fid f-exact">Exact</span></td><td>Chronicle&rsquo;s browser extension composes the window and tab order. Without it, a new window opened with the URL list &mdash; order kept, pinning lost</td></tr>
+            <tr><td>Safari</td><td><span class="fid f-exact">Exact</span></td><td>AppleScript window and tab creation</td></tr>
+            <tr><td>Firefox</td><td><span class="fid f-exact">Exact</span></td><td>Extension, same contract as Chrome</td></tr>
+            <tr><td>Terminal, iTerm, Warp, Windows&nbsp;Terminal</td><td><span class="fid">Deep link</span></td><td>New tab per recorded tab, <span class="mono">cd</span> into the directory, last command pre-typed and left unexecuted</td></tr>
+            <tr><td>Figma</td><td><span class="fid">Deep link</span></td><td><span class="mono">figma://file/&lt;key&gt;/&lt;name&gt;?node-id=&lt;frame&gt;</span>, desktop app or browser</td></tr>
+            <tr><td>Preview, Acrobat, Skim</td><td><span class="fid">Deep link</span></td><td>Open the file, then set the page through the app&rsquo;s scripting interface where one exists</td></tr>
+            <tr><td>Finder, Explorer</td><td><span class="fid">Open</span></td><td>Open the directory; view mode and sort restored on macOS via <span class="mono">.DS_Store</span> defaults</td></tr>
+            <tr><td>Slack, Notion, Linear</td><td><span class="fid">Deep link</span></td><td>Application URL schemes, opt-in and off by default</td></tr>
+            <tr><td>Docker, VPNs, databases</td><td><span class="fid f-att">Needs you</span></td><td>Never started automatically. Listed on the receipt with a one-click copy of the command</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">Adapters are declarative and ship as data, not code, so a new application can be supported in a point release &mdash; and you can write one for an in-house tool.</p>
+    </div>
+
+    <div class="stack-s">
+      <h4>An adapter, in full</h4>
+      <pre><span class="k">[adapter]</span>
+id       = <span class="s">"com.google.android.studio"</span>
+match    = <span class="s">"bundle:com.google.android.studio"</span>
+
+<span class="k">[capture]</span>
+project_root = <span class="s">"ax:window.document.path"</span>   <span class="c"># accessibility tree</span>
+git_branch   = <span class="s">"file:{project_root}/.git/HEAD"</span>
+run_config   = <span class="s">"file:{project_root}/.idea/workspace.xml#RunManager@selected"</span>
+title_policy = <span class="s">"keep"</span>                       <span class="c"># or "app-name-only"</span>
+
+<span class="k">[restore]</span>
+fidelity = <span class="s">"exact"</span>
+launch   = <span class="s">"studio {project_root}"</span>
+ready    = <span class="s">"ax:window.title matches '{project_name}'"</span>   <span class="c"># 45s timeout</span>
+then     = [
+  <span class="s">"idea:select-run-config {run_config}"</span>,
+  <span class="s">"window:place {frame} on {display_uuid}"</span>,
+]
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ASK -->
+<section id="ask">
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow p">Ask Chronicle</p>
+      <h2>Search that answers in a sentence and ends in a button</h2>
+      <p class="lede">Every query resolves to a session or an artifact, which means every answer can be acted on. Parsing runs on-device against a small grammar over your own history &mdash; there is no request to send anywhere.</p>
+    </div>
+
+    <div class="grid2" style="align-items:start; gap:22px">
+      <div class="stack-s">
+        <div class="mini">
+          <div class="qline"><span style="color:var(--faint)">&#9906;</span><span>which figma file was I using yesterday?</span><span class="caret"></span></div>
+          <div class="mini-b">
+            <p class="said">The <em>Spotted &mdash; Login &amp; OTP</em> file, for 38 minutes yesterday afternoon, while you were building the Android App.</p>
+            <div class="hitrow on">
+              <span class="ico t-des" style="width:22px; height:22px; border-radius:5.5px; font-size:8.5px">Fi</span>
+              <span class="itxt"><b>Spotted &mdash; Login &amp; OTP</b><span class="meta">frame &ldquo;OTP entry / error states&rdquo;</span></span>
+              <span class="btn primary" style="padding:5px 11px; font-size:12px">Open <span class="kbd">&crarr;</span></span>
+            </div>
+            <div class="hitrow">
+              <span class="ico t-code" style="width:22px; height:22px; border-radius:5.5px; font-size:8.5px">&#9635;</span>
+              <span class="itxt"><b>Building the Android App</b><span class="meta">Yesterday, 2:15&ndash;6:40 PM &middot; 14 items</span></span>
+              <span class="btn" style="padding:5px 11px; font-size:12px">Restore <span class="kbd">&#8679;&crarr;</span></span>
+            </div>
+          </div>
+        </div>
+        <p class="caption">The command bar is the same field as the sidebar search, raised to the centre of the screen with <span class="kbd">&#8984;K</span> &mdash; or from anywhere on the desktop with the global hotkey.</p>
+      </div>
+
+      <div class="stack-s">
+        <h4>Query shapes it understands</h4>
+        <div class="stack-xs sm" style="font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink-2)">
+          <div>what was I working on yesterday?</div>
+          <div>show me the project I worked on Monday</div>
+          <div>which figma file was I using yesterday?</div>
+          <div>what website was I researching last night?</div>
+          <div>open the workspace where I was working on the login feature</div>
+          <div>restore my last development session</div>
+          <div>when did I last touch spotted-api?</div>
+          <div>every session that used the Northbeam figma</div>
+        </div>
+        <h4 style="margin-top:8px">How it resolves</h4>
+        <p class="sm dim">Four extractors run over the phrase &mdash; <b>time</b> (&ldquo;yesterday&rdquo;, &ldquo;last night&rdquo;, &ldquo;Monday&rdquo;, &ldquo;last&rdquo;), <b>kind</b> (figma, website, project, terminal, session), <b>subject</b> (matched against project roots, branch names, file names, session titles and domains via SQLite FTS), and <b>intent</b> (show, open, restore). What is left over becomes a full-text search. An unparseable query still returns ranked sessions rather than an error.</p>
+        <p class="sm dim">Ranking favours focus time over visit count &mdash; the tab you stared at for forty minutes beats the twelve you opened and closed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- THE MOMENT -->
+<section>
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow">The moment it earns its keep</p>
+      <h2>You did not open Chronicle. Chronicle opened for you.</h2>
+      <p class="lede">The interrupted session is the whole reason the product exists, so it is the one case where Chronicle speaks first. After an unclean shutdown, it appears once at login, and never nags again.</p>
+    </div>
+    <div class="grid2" style="align-items:start; gap:24px">
+      <div class="stack-s">
+        <div class="notif">
+          <span class="glyph" style="width:30px; height:30px; border-radius:8px; margin-top:1px"></span>
+          <div class="stack-xs" style="flex:1">
+            <b style="font-size:13.5px">Chronicle</b>
+            <p class="sm" style="color:var(--ink-2); line-height:1.45">Your Mac restarted at 6:41 PM. You were <b>building the Android App</b> &mdash; 14 things across 6 apps.</p>
+            <div style="display:flex; gap:8px; margin-top:7px">
+              <span class="btn primary" style="padding:6px 13px; font-size:12.5px">Restore</span>
+              <span class="btn" style="padding:6px 13px; font-size:12.5px">Later</span>
+            </div>
+          </div>
+        </div>
+        <p class="caption">One notification. &ldquo;Later&rdquo; means later, not in ten minutes.</p>
+      </div>
+      <div class="stack-s">
+        <h4>The menu bar, the rest of the time</h4>
+        <div class="mini" style="max-width:320px">
+          <div class="mini-h"><span class="rec"></span> Recording &middot; Building the Android App</div>
+          <div style="padding:6px">
+            <div class="hitrow" style="background:none; border:0; padding:7px 10px"><span class="itxt"><b>Restore last session</b></span><span class="kbd">&#8997;&#8984;R</span></div>
+            <div class="hitrow" style="background:none; border:0; padding:7px 10px"><span class="itxt"><b>Ask Chronicle&hellip;</b></span><span class="kbd">&#8997;&#8984;\</span></div>
+            <div class="hitrow" style="background:none; border:0; padding:7px 10px; border-top:1px solid var(--line-soft); border-radius:0"><span class="itxt"><b>Pause recording</b><span class="meta">for an hour, until tomorrow, or until I resume</span></span></div>
+            <div class="hitrow" style="background:none; border:0; padding:7px 10px"><span class="itxt" style="color:var(--crit)"><b>Forget the last hour</b></span></div>
+          </div>
+        </div>
+        <p class="caption">No badge counts, no streaks, no weekly summary. Chronicle has no opinion about how you spent your day.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- KEYBOARD -->
+<section>
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow p">Keyboard</p>
+      <h2>Open, glance, restore &mdash; without the trackpad</h2>
+      <p class="lede">The whole primary path is four keystrokes: summon, arrow to the session, Return, done.</p>
+    </div>
+    <div class="grid2" style="gap:0 40px">
+      <div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8997;&#8984;\</span></span><span class="d">Summon Chronicle from anywhere</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8997;&#8984;R</span></span><span class="d">Restore the last session, no window shown</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8593;</span><span class="kbd">&#8595;</span></span><span class="d">Move through sessions</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8594;</span></span><span class="d">Step into the session&rsquo;s items</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">Space</span></span><span class="d">Peek at the highlighted item</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&crarr;</span></span><span class="d">Restore Workspace</span></div>
+      </div>
+      <div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8679;&crarr;</span></span><span class="d">Restore only the checked items</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8984;&crarr;</span></span><span class="d">Restore into a new Space</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8984;Z</span></span><span class="d">Undo the restore, up to ten minutes after</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8984;K</span></span><span class="d">Ask Chronicle</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8984;R</span></span><span class="d">Rename the session</span></div>
+        <div class="keycap"><span class="kk"><span class="kbd">&#8984;P</span> <span class="kbd">&#8984;&#9003;</span></span><span class="d">Pin a session &middot; delete a session</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRIVACY -->
+<section id="privacy">
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow">Privacy</p>
+      <h2>A record you can read, edit, and destroy</h2>
+      <p class="lede">A tool that watches your desk all day only works if you never wonder what it has. So the record is legible, the controls are per-app, and deletion is real deletion.</p>
+    </div>
+
+    <div class="grid2" style="align-items:start; gap:22px">
+      <div class="stack-s">
+        <div class="mini">
+          <div class="mini-h">Settings &mdash; Sources</div>
+          <div class="mini-b" style="gap:0">
+            <div class="togrow"><span class="itxt"><b>Visual Studio Code</b><span class="meta">project, open files, branch</span></span><span class="seg"><span class="on">Full</span><span>Titles off</span><span>Ignore</span></span></div>
+            <div class="togrow"><span class="itxt"><b>Chrome</b><span class="meta">tabs and windows &middot; private windows always excluded</span></span><span class="seg"><span class="on">Full</span><span>Titles off</span><span>Ignore</span></span></div>
+            <div class="togrow"><span class="itxt"><b>iTerm</b><span class="meta">working directory only &mdash; commands off</span></span><span class="seg"><span>Full</span><span class="on">Titles off</span><span>Ignore</span></span></div>
+            <div class="togrow"><span class="itxt"><b>1Password</b><span class="meta">on the permanent deny list</span></span><span class="seg"><span>Full</span><span>Titles off</span><span class="off">Ignore</span></span></div>
+            <div class="togrow"><span class="itxt"><b>Messages</b><span class="meta">messaging apps are off unless you turn them on</span></span><span class="seg"><span>Full</span><span>Titles off</span><span class="off">Ignore</span></span></div>
+            <div class="togrow"><span class="itxt"><b>Mercury Banking</b><span class="meta">matched the finance category, added automatically</span></span><span class="seg"><span>Full</span><span>Titles off</span><span class="off">Ignore</span></span></div>
+          </div>
+        </div>
+        <p class="caption">Three states per app, one row each, and a shipped deny list covering password managers, banking, health and messaging so the first run is already conservative.</p>
+      </div>
+
+      <div class="stack-s">
+        <div class="card"><h3>One encrypted file, on this machine</h3><p class="sm dim">SQLite at <span class="mono">~/Library/Application&nbsp;Support/Chronicle/</span>, encrypted at rest with a key held in the system keychain and released on unlock. No account, no server, no sync, no crash reporting. Backup is an explicit export you carry yourself.</p></div>
+        <div class="card"><h3>Show me everything you have</h3><p class="sm dim">Any session opens to its raw rows &mdash; every observation, its source, and its timestamp. Nothing about the record is summarised away from you, and the export is plain JSON.</p></div>
+        <div class="card"><h3>Forgetting is a first-class verb</h3><p class="sm dim">90-day rolling retention by default, adjustable to 7 days or forever. Delete one item, one session, one day, or everything about one project. <b>Forget the last hour</b> sits in the menu bar for the moment you realise you should not have been recorded. Deletes are hard deletes, followed by a vacuum &mdash; no tombstones, no trash.</p></div>
+        <div class="card"><h3>Pause is visible and honest</h3><p class="sm dim">While paused the menu bar icon is hollow, and Chronicle auto-pauses whenever a deny-listed app is frontmost. It never records &ldquo;you paused Chronicle from 2 to 4&rdquo; as a fact about you.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="build">
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow p">Architecture</p>
+      <h2>Small enough to leave running forever</h2>
+      <p class="lede">Chronicle is only useful if it is always on, so the budget comes first and the features fit inside it: under 60&nbsp;MB resident, under 0.5% CPU at idle, no measurable effect on battery. That budget is why it is a native binary rather than a bundled browser.</p>
+    </div>
+
+    <div class="grid2" style="align-items:start">
+      <div class="stack-s">
+        <h4>Five pieces</h4>
+        <div class="stack-xs sm">
+          <div><b>Observer</b> &mdash; a small daemon with per-OS adapters. Accessibility API on macOS, UI Automation on Windows. No kernel extension, no root, no injection. Event-driven, with a slow heartbeat as backstop.</div>
+          <div><b>Normaliser</b> &mdash; turns raw observations into three things: an app, an artifact, and a window state. Applies title and URL redaction here, before anything is written, so the sensitive form never reaches disk.</div>
+          <div><b>Sessioniser</b> &mdash; runs incrementally every 60 seconds over the last two hours, applying the boundary rules. Cheap, idempotent, and safe to re-run after a crash.</div>
+          <div><b>Store</b> &mdash; encrypted SQLite with FTS5 over titles, paths, and session names. One file, portable, inspectable.</div>
+          <div><b>Restorer</b> &mdash; the planner plus the adapter table, the only component that acts on the system rather than watching it, and the only one that ever asks for confirmation.</div>
+        </div>
+        <p class="caption">The UI is SwiftUI on macOS and WinUI on Windows over a shared Rust core, so the observer, sessioniser and store are written once.</p>
+      </div>
+      <div class="stack-s">
+        <h4>Crash safety</h4>
+        <p class="sm dim">The daemon writes a heartbeat and a clean-shutdown marker. If the marker is missing at next launch, the last open session is closed at the final heartbeat and flagged as interrupted &mdash; which is exactly the session the user is about to come looking for. Observations are written continuously rather than buffered to session end, so a hard power loss costs at most 30 seconds of context.</p>
+        <h4 style="margin-top:6px">Multiple machines</h4>
+        <p class="sm dim">Sessions carry a device id and stay on the machine that recorded them. A laptop and a desktop keep separate histories, because a workspace that cannot be restored on this machine is not worth showing here. If cross-device ever ships, it ships as end-to-end encrypted transfer that the user starts by hand &mdash; never as an account.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCOPE -->
+<section>
+  <div class="wrap stack">
+    <div class="stack-s narrow">
+      <p class="eyebrow">Scope</p>
+      <h2>The features Chronicle will keep turning down</h2>
+      <p class="lede">Every one of these is a plausible next feature, a real user request, and a way to stop being the thing that answers &ldquo;where was I?&rdquo;</p>
+    </div>
+    <div class="grid3">
+      <div class="card"><h3>Time tracking</h3><p class="sm dim">No hours-per-project charts, no productivity score, no weekly report. Chronicle knows how long you spent in Figma and will never tell you about it unprompted.</p></div>
+      <div class="card"><h3>Screen recording</h3><p class="sm dim">No screenshots, no timeline of images, no visual memory. Pointers only &mdash; it is the reason the whole database is a few megabytes a year.</p></div>
+      <div class="card"><h3>Clipboard history</h3><p class="sm dim">A different product with a different threat model. Chronicle restores where you were, not what you copied.</p></div>
+      <div class="card"><h3>Tasks and notes</h3><p class="sm dim">No to-dos, no session notes, no tagging system. The session already has a name and a moment in time; that is the whole index.</p></div>
+      <div class="card"><h3>Team features</h3><p class="sm dim">No shared sessions, no manager view, no &ldquo;see what your team worked on&rdquo;. The instant this data has a second reader, people stop leaving it on.</p></div>
+      <div class="card"><h3>An assistant</h3><p class="sm dim">Ask Chronicle answers questions about your own history and stops there. It does not summarise your week, suggest what to work on, or have thoughts about your habits.</p></div>
+    </div>
+    <div class="note">
+      <b>The one measure that matters:</b> the time between opening the lid and the first keystroke that is real work. Chronicle is finished when that is under fifteen seconds on a day you cannot remember what you were doing.
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap stack-s">
+    <p style="font-family:'Fraunces',Georgia,serif; font-size:23px; line-height:1.3; letter-spacing:-.015em; max-width:24ch; font-variation-settings:'opsz' 40; font-weight:600">Chronicle remembers your workspace so you never have to.</p>
+    <p class="xs">Product design specification &middot; v1 scope &middot; macOS first, Windows to follow</p>
+  </div>
+</footer>

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chronicle</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <span class="mark"><span class="glyph"></span>Chronicle</span>
+
+    <label class="search">
+      <span class="glass">&#9906;</span>
+      <input id="q" type="text" placeholder="Ask Chronicle" spellcheck="false" autocomplete="off">
+      <span class="kbd">Ctrl K</span>
+    </label>
+
+    <span class="rec"><span class="dot" id="recdot"></span><span id="recstate">checking…</span></span>
+    <button class="iconbtn" id="sourcesBtn" title="Per-app capture policy">Sources</button>
+  </header>
+
+  <div class="body">
+    <nav class="sidebar" id="sidebar" aria-label="Sessions"></nav>
+    <main class="detail" id="detail"></main>
+  </div>
+
+  <footer class="statusbar">
+    <span id="dbline">—</span>
+    <span class="right" id="countline"></span>
+  </footer>
+</div>
+
+<!-- Restore receipt -->
+<div class="scrim" id="receiptScrim" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="receiptTitle">
+    <h2 id="receiptTitle">Restore receipt <span class="sub" id="receiptTiming"></span></h2>
+    <div class="scrollpane" id="receiptBody"></div>
+    <footer>
+      <span class="spacer" id="receiptNote"></span>
+      <button class="btn" data-close="receiptScrim">Close</button>
+    </footer>
+  </div>
+</div>
+
+<!-- Sources -->
+<div class="scrim" id="sourcesScrim" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sourcesTitle">
+    <h2 id="sourcesTitle">Sources <span class="sub">what Chronicle may record, per app</span></h2>
+    <div class="scrollpane" id="sourcesBody"></div>
+    <footer>
+      <span class="spacer">Password managers and sign-in prompts can never be enabled.</span>
+      <button class="btn" data-close="sourcesScrim">Done</button>
+    </footer>
+  </div>
+</div>
+
+<!-- Forget -->
+<div class="scrim" id="forgetScrim" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="forgetTitle">
+    <h2 id="forgetTitle">Forget the last hour</h2>
+    <div class="scrollpane">
+      <p style="margin:8px 0 0;color:var(--ink-2)">
+        Every observation, artifact and session recorded in the last hour is
+        deleted from the database and the file is compacted. There is no undo
+        and nothing is kept in a trash.
+      </p>
+    </div>
+    <footer>
+      <span class="spacer"></span>
+      <button class="btn" data-close="forgetScrim">Cancel</button>
+      <button class="btn" id="forgetConfirm" style="border-color:var(--crit);color:var(--crit)">Forget it</button>
+    </footer>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
